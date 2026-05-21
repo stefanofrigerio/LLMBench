@@ -1,0 +1,74 @@
+#cloud-config
+
+# Cloud-init configuration for LLMBench runner
+# Installs Ollama, Python, and dependencies
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - git
+  - python3
+  - python3-pip
+  - python3-venv
+  - build-essential
+  - jq
+
+write_files:
+  - path: /opt/llmbench/models.json
+    content: ${models_to_pull}
+    permissions: '0644'
+
+  - path: /opt/llmbench/setup.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+
+      echo "=== LLMBench Setup Started ==="
+
+      # Install Ollama
+      echo "Installing Ollama..."
+      curl -fsSL https://ollama.ai/install.sh | sh
+
+      # Start Ollama service
+      echo "Starting Ollama service..."
+      systemctl enable ollama
+      systemctl start ollama
+
+      # Wait for Ollama to be ready
+      echo "Waiting for Ollama to be ready..."
+      for i in {1..30}; do
+        if curl -s http://localhost:11434/api/tags > /dev/null; then
+          echo "Ollama is ready!"
+          break
+        fi
+        echo "Waiting... ($i/30)"
+        sleep 2
+      done
+
+      # Pull models
+      echo "Pulling models from models.json..."
+      if [ -f /opt/llmbench/models.json ]; then
+        for model in $(cat /opt/llmbench/models.json | jq -r '.[]'); do
+          echo "Pulling model: $model"
+          ollama pull "$model" || echo "Failed to pull $model"
+        done
+      fi
+
+      # Setup Python environment
+      echo "Setting up Python environment..."
+      python3 -m venv /opt/llmbench/venv
+      source /opt/llmbench/venv/bin/activate
+
+      # Mark setup as complete
+      touch /opt/llmbench/.setup_complete
+      echo "=== LLMBench Setup Complete ==="
+
+runcmd:
+  - mkdir -p /opt/llmbench
+  - chown -R ubuntu:ubuntu /opt/llmbench
+  - sudo -u ubuntu /opt/llmbench/setup.sh > /opt/llmbench/setup.log 2>&1
+
+final_message: "LLMBench runner is ready after $UPTIME seconds"

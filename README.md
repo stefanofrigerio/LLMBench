@@ -74,9 +74,21 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
+## Usage Modes
+
+LLMBench supports two execution modes:
+
+### 1. 🏠 Local Mode
+Run benchmarks on your local machine with Ollama.
+
+### 2. ☁️ Cloud Mode
+Run benchmarks on cloud infrastructure (GCP/AWS) with powerful GPU instances.
+
+**👉 See [CLOUD.md](CLOUD.md) for complete cloud setup and usage guide.**
+
 ## Prerequisites
 
-### Ollama Setup
+### Local Mode
 LLMBench uses Ollama to run local open-source models:
 
 ```bash
@@ -90,9 +102,30 @@ ollama pull llama3.1:8b
 ollama pull mistral:7b
 ```
 
-## Usage
+### Cloud Mode
+- Terraform (>= 1.0)
+- GCP CLI (`gcloud`) or AWS CLI (`aws`)
+- SSH key pair
 
-### Running Benchmarks
+See [CLOUD.md](CLOUD.md) for detailed setup.
+
+## Quick Start
+
+### Cloud Mode (Recommended for Production)
+
+```bash
+# Run benchmark on GCP with GPU
+llmbench run --provider gcp --project my-project --gpu nvidia-tesla-t4
+
+# Run benchmark on AWS spot instance
+llmbench run --provider aws --region us-east-1 --machine g4dn.xlarge --spot
+```
+
+**Complete guide:** [CLOUD.md](CLOUD.md)
+
+### Local Mode
+
+#### Running Benchmarks (Python API)
 
 ```python
 import asyncio
@@ -189,6 +222,7 @@ Define evaluation criteria and thresholds for each capability.
 LLMBench/
 ├── src/llmbench/
 │   ├── cube.py              # Core 3D model definitions
+│   ├── cli.py               # CLI interface
 │   ├── models/
 │   │   ├── base.py          # Model interface
 │   │   └── ollama.py        # Ollama implementation
@@ -197,14 +231,23 @@ LLMBench/
 │   │   └── code_generation.py
 │   ├── runners/
 │   │   └── benchmark.py     # Main benchmark runner
-│   └── storage/
-│       └── sqlite.py        # Results storage
+│   ├── storage/
+│   │   └── sqlite.py        # Results storage
+│   └── cloud/
+│       └── orchestrator.py  # Cloud infrastructure orchestration
+├── infrastructure/
+│   ├── gcp/                 # GCP Terraform modules
+│   ├── aws/                 # AWS Terraform modules
+│   └── scripts/             # Provisioning scripts
 ├── config/
 │   ├── models.yaml          # Model configurations
 │   └── capabilities.yaml    # Capability definitions
+├── examples/                # Example scripts
 ├── tests/                   # Unit tests
 ├── data/                    # Test datasets
-└── results/                 # Benchmark results (SQLite DB)
+└── results/                 # Benchmark results
+    ├── benchmarks.db        # Local results
+    └── cloud/               # Cloud benchmark results
 ```
 
 ## Extending
