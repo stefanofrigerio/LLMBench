@@ -16,7 +16,7 @@ from ..models.base import ModelConfig
 from ..capabilities.base import TestCase
 
 
-@dataclass
+@dataclass(order=True)
 class WorkItem:
     """
     A single unit of work representing one benchmark test.
@@ -25,16 +25,19 @@ class WorkItem:
     with one test case at a specific complexity/sensitivity point.
     """
 
-    task_id: str
-    model_config: ModelConfig
-    capability: Capability
-    test_case: TestCase
-    priority: int = 0
-    created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    worker_id: Optional[str] = None
-    retry_count: int = 0
+    # Fields without defaults must come first
+    task_id: str = field(compare=False)
+    model_config: ModelConfig = field(compare=False)
+    capability: Capability = field(compare=False)
+    test_case: TestCase = field(compare=False)
+
+    # Fields with defaults (including priority for ordering)
+    priority: int = field(default=0, compare=True)
+    created_at: datetime = field(default_factory=datetime.now, compare=False)
+    started_at: Optional[datetime] = field(default=None, compare=False)
+    completed_at: Optional[datetime] = field(default=None, compare=False)
+    worker_id: Optional[str] = field(default=None, compare=False)
+    retry_count: int = field(default=0, compare=False)
 
     @classmethod
     def create(
@@ -73,9 +76,21 @@ class TaskQueue:
     async def enqueue(self, item: WorkItem) -> None:
         """Add a work item to the queue."""
         async with self._lock:
-            # Priority queue uses (priority, item) tuples
-            # Lower priority value = higher priority
-            await self._queue.put((-item.priority, item))
+            # WorkItem is orderable by priority (negated for max-heap behavior)
+            # Create a new item with negated priority for proper ordering
+            queued_item = WorkItem(
+                task_id=item.task_id,
+                model_config=item.model_config,
+                capability=item.capability,
+                test_case=item.test_case,
+                priority=-item.priority,  # Negate for max-heap
+                created_at=item.created_at,
+                started_at=item.started_at,
+                completed_at=item.completed_at,
+                worker_id=item.worker_id,
+                retry_count=item.retry_count,
+            )
+            await self._queue.put(queued_item)
             self._total_enqueued += 1
 
     async def enqueue_batch(self, items: list[WorkItem]) -> None:
@@ -95,12 +110,14 @@ class TaskQueue:
             WorkItem if available, None if timeout expires
         """
         try:
-            _, item = await asyncio.wait_for(
+            item = await asyncio.wait_for(
                 self._queue.get(),
                 timeout=timeout
             )
 
             async with self._lock:
+                # Restore original priority (un-negate)
+                item.priority = abs(item.priority)
                 item.started_at = datetime.now()
                 item.worker_id = worker_id
                 self._pending[item.task_id] = item
@@ -134,9 +151,16 @@ class TaskQueue:
 
             if item.retry_count < max_retries:
                 # Reset timestamps and requeue
-                item.started_at = None
-                item.worker_id = None
-                await self._queue.put((-item.priority, item))
+                queued_item = WorkItem(
+                    task_id=item.task_id,
+                    model_config=item.model_config,
+                    capability=item.capability,
+                    test_case=item.test_case,
+                    priority=-abs(item.priority),  # Negate for max-heap
+                    created_at=item.created_at,
+                    retry_count=item.retry_count,
+                )
+                await self._queue.put(queued_item)
             else:
                 # Permanently failed
                 self._failed[task_id] = (item, error)
@@ -162,7 +186,16 @@ class TaskQueue:
                 item = self._pending.pop(task_id)
                 item.started_at = None
                 item.worker_id = None
-                await self._queue.put((-item.priority, item))
+                # Re-enqueue with negated priority
+                queued_item = WorkItem(
+                    task_id=item.task_id,
+                    model_config=item.model_config,
+                    capability=item.capability,
+                    test_case=item.test_case,
+                    priority=-abs(item.priority),  # Negate for max-heap
+                    created_at=item.created_at,
+                )
+                self._queue.put_nowait(queued_item)
                 requeued += 1
 
         return requeued
