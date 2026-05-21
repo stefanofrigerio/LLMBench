@@ -1,0 +1,14 @@
+{
+  "capability": "invoice_extractor",
+  "test_cases": [
+    {
+      "id": "example",
+      "input_file": "example/test.txt",
+      "expected_file": "example/test_expected.txt",
+      "complexity": 1,
+      "metadata": {
+        "description": "Simple total extraction from invoice text"
+      }
+    }
+  ]
+}

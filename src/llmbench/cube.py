@@ -23,6 +23,7 @@ class Capability(str, Enum):
     REASONING = "reasoning"
     STRUCTURED_OUTPUT = "structured_output"
     TRANSLATION = "translation"
+    INVOICE_EXTRACTOR = "invoice_extractor"
 
 
 # Linear mapping: sensitivity 1-5 → minimum acceptable score 0.60-0.95
