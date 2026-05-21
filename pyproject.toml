@@ -1,36 +1,32 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
-[project]
+[tool.poetry]
 name = "llmbench"
 version = "0.1.0"
 description = "Benchmark system for evaluating open-source LLMs across capability, complexity, and sensitivity dimensions"
-authors = [{name = "Stefano Frigerio"}]
+authors = ["Stefano Frigerio <stefano@example.com>"]
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "aiohttp>=3.9.0",
-    "pyyaml>=6.0",
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-    "websockets>=12.0",
-]
+packages = [{include = "llmbench", from = "src"}]
 
-[project.scripts]
+[tool.poetry.dependencies]
+python = "^3.11"
+aiohttp = ">=3.9.0"
+pyyaml = ">=6.0"
+fastapi = ">=0.109.0"
+uvicorn = {extras = ["standard"], version = ">=0.27.0"}
+websockets = ">=12.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+pytest-asyncio = ">=0.21.0"
+pytest-cov = ">=4.0"
+black = ">=23.0"
+mypy = ">=1.0"
+
+[tool.poetry.scripts]
 llmbench = "llmbench.cli:main"
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0",
-    "black>=23.0",
-    "mypy>=1.0",
-]
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 100
@@ -41,3 +37,32 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings",
+]
+markers = [
+    "asyncio: mark test as async",
+    "integration: mark test as integration test",
+]
+
+[tool.coverage.run]
+source = ["src/llmbench"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false

@@ -16,8 +16,13 @@ git push origin master
 **CRITICAL: Unit tests are mandatory:**
 - Write unit tests for all new code
 - Minimum test coverage: **90%**
-- Run tests before pushing: `pytest tests/ --cov=src --cov-report=term-missing`
+- Run tests before pushing: `poetry run pytest tests/ --cov=src/llmbench --cov-report=term-missing`
 - Tests must pass before merging
+
+**Poetry & Virtual Environments:**
+- This project uses **Poetry** for dependency management
+- Poetry automatically creates and manages a virtual environment
+- All commands should run via `poetry run` or inside the activated venv
 
 ## Project Overview
 
@@ -85,23 +90,48 @@ llmbench worker --controller-url http://CONTROLLER_IP:8000 --worker-id worker-te
 ### Development
 
 ```bash
-# Install in editable mode
-pip install -e .
+# Initial setup (one-time)
+./setup-venv.sh
 
-# Install with dev dependencies (includes pytest, pytest-cov, pytest-asyncio)
-pip install -e ".[dev]"
+# Or manually with Poetry
+poetry install --with dev
+
+# Activate virtual environment
+source .venv/bin/activate
 
 # Run tests with coverage (MUST be ≥90% before pushing)
-pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=90
+poetry run pytest tests/ --cov=src/llmbench --cov-report=term-missing --cov-fail-under=90
 
 # Run specific test file
-pytest tests/controller/test_task_queue.py -v
+poetry run pytest tests/controller/test_task_queue.py -v
 
 # Format code (Black, line length 100)
-black src/
+poetry run black src/
 
 # Type checking
-mypy src/
+poetry run mypy src/
+
+# Run CLI commands
+poetry run llmbench --help
+poetry run llmbench controller start --port 8000
+```
+
+**Poetry Commands:**
+```bash
+# Add a new dependency
+poetry add <package>
+
+# Add a dev dependency
+poetry add --group dev <package>
+
+# Update dependencies
+poetry update
+
+# Show installed packages
+poetry show
+
+# Export requirements.txt (if needed for Docker)
+poetry export -f requirements.txt --output requirements.txt --without-hashes
 ```
 
 **Test Coverage Requirements:**
@@ -449,10 +479,11 @@ def test_benchmark_point_invalid_complexity():
 ### Pre-Push Checklist
 
 Before every `git push`:
-1. ✅ Run tests: `pytest tests/ --cov=src --cov-fail-under=90`
-2. ✅ Format code: `black src/ tests/`
-3. ✅ Type check: `mypy src/`
-4. ✅ All tests pass
-5. ✅ Coverage ≥ 90%
-6. ✅ Commit with descriptive message
-7. ✅ Push to GitHub
+1. ✅ Activate venv: `source .venv/bin/activate`
+2. ✅ Run tests: `poetry run pytest tests/ --cov=src/llmbench --cov-fail-under=90`
+3. ✅ Format code: `poetry run black src/ tests/`
+4. ✅ Type check: `poetry run mypy src/`
+5. ✅ All tests pass
+6. ✅ Coverage ≥ 90%
+7. ✅ Commit with descriptive message
+8. ✅ Push to GitHub

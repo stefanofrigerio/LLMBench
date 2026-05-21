@@ -62,10 +62,33 @@ LLMBench uses a 3D cube model to map which open-source model is suitable for rep
 
 ## Installation
 
+### Using Poetry (Recommended)
+
 ```bash
 # Clone the repository
-git clone git@github.com:stefanofrigerio/LLMBench.git
+git clone https://github.com/stefanofrigerio/LLMBench.git
 cd LLMBench
+
+# Run setup script (installs Poetry if needed, creates venv, installs deps)
+./setup-venv.sh
+
+# Or manually
+poetry install --with dev
+
+# Activate virtual environment
+source .venv/bin/activate
+```
+
+### Using pip (Alternative)
+
+```bash
+# Clone the repository
+git clone https://github.com/stefanofrigerio/LLMBench.git
+cd LLMBench
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
 
 # Install dependencies
 pip install -e .

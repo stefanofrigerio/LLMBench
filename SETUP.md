@@ -37,8 +37,27 @@ aws configure
 
 ### 3. Install LLMBench
 
+**Using Poetry (Recommended):**
 ```bash
 cd LLMBench
+
+# Quick setup with script
+./setup-venv.sh
+
+# Or manually
+poetry install --with dev
+source .venv/bin/activate
+```
+
+**Using pip (Alternative):**
+```bash
+cd LLMBench
+
+# Create venv
+python3 -m venv venv
+source venv/bin/activate
+
+# Install
 pip install -e .
 ```
 
@@ -81,8 +100,27 @@ ollama pull llama3.1:8b
 
 ### 3. Install LLMBench
 
+**Using Poetry (Recommended):**
 ```bash
 cd LLMBench
+
+# Quick setup with script
+./setup-venv.sh
+
+# Or manually
+poetry install --with dev
+source .venv/bin/activate
+```
+
+**Using pip (Alternative):**
+```bash
+cd LLMBench
+
+# Create venv
+python3 -m venv venv
+source venv/bin/activate
+
+# Install
 pip install -e .
 ```
 
