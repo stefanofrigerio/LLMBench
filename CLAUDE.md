@@ -2,6 +2,23 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development Workflow
+
+**IMPORTANT: After every major edit, push to GitHub:**
+```bash
+git add -A
+git commit -m "Descriptive message
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+git push origin master
+```
+
+**CRITICAL: Unit tests are mandatory:**
+- Write unit tests for all new code
+- Minimum test coverage: **90%**
+- Run tests before pushing: `pytest tests/ --cov=src --cov-report=term-missing`
+- Tests must pass before merging
+
 ## Project Overview
 
 LLMBench is a 3D cube benchmarking system for evaluating open-source LLMs across three dimensions:
@@ -71,11 +88,14 @@ llmbench worker --controller-url http://CONTROLLER_IP:8000 --worker-id worker-te
 # Install in editable mode
 pip install -e .
 
-# Install with dev dependencies
+# Install with dev dependencies (includes pytest, pytest-cov, pytest-asyncio)
 pip install -e ".[dev]"
 
-# Run tests
-pytest tests/
+# Run tests with coverage (MUST be ≥90% before pushing)
+pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=90
+
+# Run specific test file
+pytest tests/controller/test_task_queue.py -v
 
 # Format code (Black, line length 100)
 black src/
@@ -83,6 +103,13 @@ black src/
 # Type checking
 mypy src/
 ```
+
+**Test Coverage Requirements:**
+- **Minimum coverage: 90%** for all modules
+- Test both success and failure paths
+- Mock external dependencies (HTTP calls, subprocess, file I/O)
+- Use `pytest-asyncio` for async tests
+- Use `pytest-cov` to verify coverage before commit
 
 ### Testing with Ollama
 
@@ -341,3 +368,91 @@ summary = storage.get_model_summary("deepseek-coder-6.7b")
 ```
 
 Query logic: Returns model with highest average score at that point. If multiple models tie, returns the one with lowest cost estimate.
+
+## Testing Guidelines
+
+### Test Structure
+
+```
+tests/
+├── controller/
+│   ├── test_task_queue.py
+│   ├── test_worker_registry.py
+│   └── test_api.py
+├── worker/
+│   └── test_agent.py
+├── storage/
+│   └── test_sqlite.py
+└── integration/
+    └── test_distributed_benchmark.py
+```
+
+### Coverage Requirements
+
+**MANDATORY: 90% minimum coverage before pushing code.**
+
+```bash
+# Check coverage
+pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=90
+
+# Generate HTML report
+pytest tests/ --cov=src --cov-report=html
+open htmlcov/index.html
+```
+
+### Writing Tests
+
+**For async code:**
+```python
+import pytest
+
+@pytest.mark.asyncio
+async def test_task_queue_enqueue():
+    queue = TaskQueue()
+    item = WorkItem.create(model_config, capability, test_case)
+    await queue.enqueue(item)
+    assert queue.get_status()["queued"] == 1
+```
+
+**Mock external dependencies:**
+```python
+from unittest.mock import AsyncMock, patch
+
+@pytest.mark.asyncio
+async def test_worker_registration():
+    with patch('aiohttp.ClientSession.post') as mock_post:
+        mock_post.return_value.__aenter__.return_value.status = 200
+        agent = WorkerAgent("http://test", "worker-1")
+        result = await agent.register()
+        assert result is True
+```
+
+**Test both success and failure:**
+```python
+def test_benchmark_point_valid():
+    point = BenchmarkPoint(Capability.CODE_GENERATION, 3, 4)
+    assert point.complexity == 3
+
+def test_benchmark_point_invalid_complexity():
+    with pytest.raises(ValueError):
+        BenchmarkPoint(Capability.CODE_GENERATION, 6, 4)  # complexity > 5
+```
+
+### What to Test
+
+- ✅ **Business logic**: Task queue operations, worker registry, scoring
+- ✅ **Error handling**: Invalid inputs, timeouts, network failures
+- ✅ **Edge cases**: Empty queues, offline workers, retry limits
+- ✅ **Integration**: Full flow from dispatch to result collection
+- ❌ **Don't test**: External libraries (aiohttp, fastapi), cloud provider APIs
+
+### Pre-Push Checklist
+
+Before every `git push`:
+1. ✅ Run tests: `pytest tests/ --cov=src --cov-fail-under=90`
+2. ✅ Format code: `black src/ tests/`
+3. ✅ Type check: `mypy src/`
+4. ✅ All tests pass
+5. ✅ Coverage ≥ 90%
+6. ✅ Commit with descriptive message
+7. ✅ Push to GitHub
