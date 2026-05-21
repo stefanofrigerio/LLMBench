@@ -42,7 +42,7 @@ clean:  ## Clean up cache and temp files
 	@echo "✅ Cleaned"
 
 run-controller:  ## Start the controller server
-	poetry run llmbench controller start --port 8000
+	poetry run llmbench controller --port 8000
 
 setup:  ## Initial setup (Poetry + venv)
 	./setup-venv.sh

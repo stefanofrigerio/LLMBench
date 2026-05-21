@@ -51,7 +51,7 @@ python examples/run_benchmark.py
 **Distributed Mode (Recommended for Production):**
 ```bash
 # Start controller locally
-llmbench controller start --port 8000
+llmbench controller --port 8000
 
 # Dispatch benchmark to cloud workers (provisions, runs, destroys)
 llmbench dispatch --provider gcp --project YOUR_PROJECT_ID --workers 3
@@ -113,7 +113,7 @@ poetry run mypy src/
 
 # Run CLI commands
 poetry run llmbench --help
-poetry run llmbench controller start --port 8000
+poetry run llmbench controller --port 8000
 ```
 
 **Poetry Commands:**
