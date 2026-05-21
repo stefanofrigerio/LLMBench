@@ -66,3 +66,5 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+frontend/node_modules/
+frontend/dist/
