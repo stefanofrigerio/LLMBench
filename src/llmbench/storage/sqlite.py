@@ -266,3 +266,43 @@ class SQLiteStorage:
                 GROUP BY worker_id
             """, (run_id,))
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_results(
+        self,
+        capability: Optional[str] = None,
+        model_name: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[dict]:
+        """Return raw benchmark results with optional filters."""
+        conditions = []
+        params: list = []
+
+        if capability:
+            conditions.append("capability = ?")
+            params.append(capability)
+
+        if model_name:
+            conditions.append("model_name = ?")
+            params.append(model_name)
+
+        where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        params.append(limit)
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(f"""
+                SELECT
+                    model_name,
+                    capability,
+                    complexity,
+                    score,
+                    latency_ms,
+                    cost_estimate,
+                    error,
+                    timestamp
+                FROM benchmark_results
+                {where_clause}
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, params)
+            return [dict(row) for row in cursor.fetchall()]

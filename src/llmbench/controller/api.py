@@ -7,6 +7,7 @@ task dispatch, and real-time dashboard updates.
 
 import asyncio
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -56,6 +57,20 @@ class RecommendRequest(BaseModel):
     sensitivity: int  # 1-5: business context — maps to min score threshold at query time
 
 
+class ProvisionConfig(BaseModel):
+    project_id: str
+    run_id: str
+    machine_type: str = "n1-standard-4"
+    worker_count: int = 1
+    spot: bool = True
+    gpu_type: str = ""
+    gpu_count: int = 1
+    models_to_pull: List[str] = ["deepseek-coder:6.7b", "qwen2.5-coder:7b"]
+    region: str = "europe-west1"
+    zone: str = "europe-west1-b"
+    controller_url: str = ""
+
+
 class StatusResponse(BaseModel):
     queue_status: dict
     worker_stats: dict
@@ -69,6 +84,14 @@ worker_registry: Optional[WorkerRegistry] = None
 storage: Optional[SQLiteStorage] = None
 websocket_connections: List[WebSocket] = []
 current_run_id: Optional[str] = None
+
+provision_state: dict = {
+    "status": "idle",  # idle | provisioning | ready | destroying | error
+    "logs": [],
+    "worker_ips": [],
+    "error": None,
+    "run_id": None,
+}
 
 
 def create_app() -> FastAPI:
@@ -331,24 +354,31 @@ def create_app() -> FastAPI:
         model_name: Optional[str] = None,
     ):
         """Query benchmark results with optional filters."""
-        # For MVP, return all completed results from queue
-        # In production, query from database with filters
-        results = task_queue.get_results()
+        db_results = storage.get_results(capability=capability, model_name=model_name)
+
+        # Supplement with in-memory results not yet persisted
+        in_memory = task_queue.get_results()
+        in_memory_dicts = [
+            {
+                "model_name": r.model_name,
+                "capability": r.point.capability.value,
+                "complexity": r.point.complexity,
+                "score": r.score,
+                "latency_ms": r.latency_ms,
+                "cost_estimate": r.cost_estimate,
+                "error": r.error,
+            }
+            for r in in_memory
+            if (capability is None or r.point.capability.value == capability)
+            and (model_name is None or r.model_name == model_name)
+        ]
+
+        # Merge: db_results first (most recent from DB), then in-memory
+        all_results = db_results + in_memory_dicts
 
         return {
-            "results": [
-                {
-                    "model_name": r.model_name,
-                    "capability": r.point.capability.value,
-                    "complexity": r.point.complexity,
-                    "score": r.score,
-                    "latency_ms": r.latency_ms,
-                    "cost_estimate": r.cost_estimate,
-                    "error": r.error,
-                }
-                for r in results
-            ],
-            "count": len(results),
+            "results": all_results,
+            "count": len(all_results),
         }
 
     # Model recommendation endpoint
@@ -386,6 +416,65 @@ def create_app() -> FastAPI:
         """Return performance array for all models at a benchmark point."""
         scores = storage.get_all_scores(capability=capability, complexity=complexity)
         return {"capability": capability, "complexity": complexity, "models": scores}
+
+    # Provision workers via Terraform
+    @app.post("/api/provision")
+    async def provision_workers(config: ProvisionConfig):
+        """Provision cloud workers via Terraform (GCP)."""
+        global provision_state
+
+        if provision_state["status"] in ("provisioning", "destroying"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Provision operation already in progress: {provision_state['status']}",
+            )
+
+        provision_state = {
+            "status": "provisioning",
+            "logs": [],
+            "worker_ips": [],
+            "error": None,
+            "run_id": config.run_id,
+        }
+
+        await broadcast_provision_update()
+
+        # Run Terraform in background
+        asyncio.create_task(_run_terraform_provision(config))
+
+        return {"status": "provisioning", "run_id": config.run_id}
+
+    @app.get("/api/provision/status")
+    async def get_provision_status():
+        """Return current provisioning state."""
+        return provision_state
+
+    @app.post("/api/provision/destroy")
+    async def destroy_workers():
+        """Destroy provisioned cloud workers via Terraform."""
+        global provision_state
+
+        if provision_state["status"] == "idle":
+            raise HTTPException(status_code=400, detail="No active provision run to destroy")
+
+        if provision_state["status"] in ("provisioning", "destroying"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Provision operation already in progress: {provision_state['status']}",
+            )
+
+        run_id = provision_state.get("run_id")
+        if not run_id:
+            raise HTTPException(status_code=400, detail="No run_id found in provision state")
+
+        provision_state["status"] = "destroying"
+        provision_state["logs"].append("Starting terraform destroy...")
+
+        await broadcast_provision_update()
+
+        asyncio.create_task(_run_terraform_destroy(run_id))
+
+        return {"status": "destroying", "run_id": run_id}
 
     # WebSocket for real-time dashboard updates
     @app.websocket("/ws/dashboard")
@@ -496,3 +585,172 @@ async def broadcast_worker_update():
 
     for ws in disconnected:
         websocket_connections.remove(ws)
+
+
+async def broadcast_provision_update():
+    """Broadcast provision state update to dashboard."""
+    if not websocket_connections:
+        return
+
+    message = {
+        "type": "provision_update",
+        "data": {**provision_state, "timestamp": datetime.now().isoformat()},
+    }
+
+    disconnected = []
+    for ws in websocket_connections:
+        try:
+            await ws.send_json(message)
+        except:
+            disconnected.append(ws)
+
+    for ws in disconnected:
+        websocket_connections.remove(ws)
+
+
+def _terraform_dir() -> Path:
+    return Path(__file__).parent.parent.parent.parent / "infrastructure" / "gcp"
+
+
+async def _run_terraform_provision(config: ProvisionConfig):
+    """Background task: write tfvars, run terraform init + apply."""
+    global provision_state
+
+    infra_dir = _terraform_dir()
+
+    def _append_log(line: str):
+        provision_state["logs"].append(line)
+        # Keep last 200 log lines
+        if len(provision_state["logs"]) > 200:
+            provision_state["logs"] = provision_state["logs"][-200:]
+
+    try:
+        # Write tfvars file
+        tfvars_path = infra_dir / f"tfvars-{config.run_id}.json"
+        tfvars = {
+            "project_id": config.project_id,
+            "run_id": config.run_id,
+            "machine_type": config.machine_type,
+            "worker_count": config.worker_count,
+            "spot": config.spot,
+            "region": config.region,
+            "zone": config.zone,
+            "models_to_pull": config.models_to_pull,
+            "controller_url": config.controller_url,
+        }
+        if config.gpu_type:
+            tfvars["gpu_type"] = config.gpu_type
+            tfvars["gpu_count"] = config.gpu_count
+
+        infra_dir.mkdir(parents=True, exist_ok=True)
+        tfvars_path.write_text(json.dumps(tfvars, indent=2))
+        _append_log(f"Wrote tfvars to {tfvars_path}")
+        await broadcast_provision_update()
+
+        # terraform init
+        _append_log("Running terraform init...")
+        await broadcast_provision_update()
+        proc = await asyncio.create_subprocess_exec(
+            "terraform", "init", "-no-color",
+            cwd=str(infra_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        async for line in proc.stdout:
+            _append_log(line.decode().rstrip())
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"terraform init failed with code {proc.returncode}")
+
+        # terraform apply
+        _append_log("Running terraform apply...")
+        await broadcast_provision_update()
+        proc = await asyncio.create_subprocess_exec(
+            "terraform", "apply", "-auto-approve", "-no-color",
+            f"-var-file={tfvars_path}",
+            cwd=str(infra_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        async for line in proc.stdout:
+            _append_log(line.decode().rstrip())
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"terraform apply failed with code {proc.returncode}")
+
+        # Parse outputs
+        _append_log("Fetching terraform outputs...")
+        output_proc = await asyncio.create_subprocess_exec(
+            "terraform", "output", "-json",
+            cwd=str(infra_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await output_proc.communicate()
+        worker_ips: list = []
+        if output_proc.returncode == 0:
+            try:
+                tf_output = json.loads(stdout.decode())
+                # Expect either "worker_ips" list or "instance_ip" string
+                if "worker_ips" in tf_output:
+                    raw = tf_output["worker_ips"].get("value", [])
+                    worker_ips = raw if isinstance(raw, list) else [raw]
+                elif "instance_ip" in tf_output:
+                    ip = tf_output["instance_ip"].get("value")
+                    if ip:
+                        worker_ips = [ip]
+            except json.JSONDecodeError:
+                _append_log("Warning: could not parse terraform output JSON")
+
+        provision_state["status"] = "ready"
+        provision_state["worker_ips"] = worker_ips
+        _append_log(f"Provisioning complete. Worker IPs: {worker_ips}")
+
+    except Exception as exc:
+        provision_state["status"] = "error"
+        provision_state["error"] = str(exc)
+        _append_log(f"ERROR: {exc}")
+
+    await broadcast_provision_update()
+
+
+async def _run_terraform_destroy(run_id: str):
+    """Background task: run terraform destroy."""
+    global provision_state
+
+    infra_dir = _terraform_dir()
+    tfvars_path = infra_dir / f"tfvars-{run_id}.json"
+
+    def _append_log(line: str):
+        provision_state["logs"].append(line)
+        if len(provision_state["logs"]) > 200:
+            provision_state["logs"] = provision_state["logs"][-200:]
+
+    try:
+        if not tfvars_path.exists():
+            raise FileNotFoundError(f"tfvars file not found: {tfvars_path}")
+
+        proc = await asyncio.create_subprocess_exec(
+            "terraform", "destroy", "-auto-approve", "-no-color",
+            f"-var-file={tfvars_path}",
+            cwd=str(infra_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        async for line in proc.stdout:
+            _append_log(line.decode().rstrip())
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"terraform destroy failed with code {proc.returncode}")
+
+        provision_state["status"] = "idle"
+        provision_state["worker_ips"] = []
+        provision_state["run_id"] = None
+        _append_log("Terraform destroy complete.")
+
+    except Exception as exc:
+        provision_state["status"] = "error"
+        provision_state["error"] = str(exc)
+        _append_log(f"ERROR: {exc}")
+
+    await broadcast_provision_update()
