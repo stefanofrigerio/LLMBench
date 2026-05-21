@@ -1,0 +1,150 @@
+# Capability definitions and their characteristics
+capabilities:
+  code_generation:
+    description: "Generate functional code from natural language descriptions"
+    complexity_range: [1, 5]
+    sensitivity_range: [1, 5]
+    evaluation_criteria:
+      - "Syntactic correctness"
+      - "Semantic correctness"
+      - "Code quality and style"
+      - "Edge case handling"
+
+  unit_test_writing:
+    description: "Write comprehensive unit tests for given code"
+    complexity_range: [1, 5]
+    sensitivity_range: [2, 5]
+    evaluation_criteria:
+      - "Test coverage"
+      - "Edge case coverage"
+      - "Assertion quality"
+      - "Test organization"
+
+  ocr:
+    description: "Extract text from images with high accuracy"
+    complexity_range: [1, 4]
+    sensitivity_range: [1, 5]
+    evaluation_criteria:
+      - "Text extraction accuracy"
+      - "Formatting preservation"
+      - "Special character handling"
+
+  text_summarization:
+    description: "Create concise summaries of longer texts"
+    complexity_range: [1, 4]
+    sensitivity_range: [1, 4]
+    evaluation_criteria:
+      - "Information retention"
+      - "Coherence"
+      - "Brevity"
+
+  data_transformation:
+    description: "Transform data between formats (JSON, CSV, XML, etc.)"
+    complexity_range: [1, 5]
+    sensitivity_range: [2, 5]
+    evaluation_criteria:
+      - "Format correctness"
+      - "Data integrity"
+      - "Schema compliance"
+
+  reasoning:
+    description: "Multi-step logical reasoning and problem solving"
+    complexity_range: [2, 5]
+    sensitivity_range: [2, 5]
+    evaluation_criteria:
+      - "Logical correctness"
+      - "Step completeness"
+      - "Explanation clarity"
+
+  structured_output:
+    description: "Generate valid structured data (JSON, YAML, etc.)"
+    complexity_range: [1, 4]
+    sensitivity_range: [2, 5]
+    evaluation_criteria:
+      - "Format validity"
+      - "Schema compliance"
+      - "Data completeness"
+
+  translation:
+    description: "Translate text between languages"
+    complexity_range: [1, 4]
+    sensitivity_range: [1, 5]
+    evaluation_criteria:
+      - "Accuracy"
+      - "Fluency"
+      - "Context preservation"
+
+# Complexity levels explained
+complexity_levels:
+  1:
+    label: "Trivial"
+    description: "Simple, straightforward tasks with obvious solutions"
+    examples:
+      - "Format a string"
+      - "Extract a single value"
+
+  2:
+    label: "Simple"
+    description: "Basic tasks requiring fundamental knowledge"
+    examples:
+      - "Check if number is prime"
+      - "Parse simple JSON"
+
+  3:
+    label: "Moderate"
+    description: "Tasks requiring multiple steps or domain knowledge"
+    examples:
+      - "Implement merge sort"
+      - "Transform nested data structures"
+
+  4:
+    label: "Complex"
+    description: "Sophisticated tasks requiring advanced understanding"
+    examples:
+      - "Implement LRU cache"
+      - "Design API with multiple endpoints"
+
+  5:
+    label: "Expert"
+    description: "Highly sophisticated tasks requiring deep expertise"
+    examples:
+      - "Optimize algorithm for specific constraints"
+      - "Design distributed system component"
+
+# Sensitivity levels explained
+sensitivity_levels:
+  1:
+    label: "Low"
+    description: "Errors have minimal impact"
+    examples:
+      - "Typo in log message"
+      - "Formatting preference"
+
+  2:
+    label: "Minor"
+    description: "Errors are noticeable but not critical"
+    examples:
+      - "Non-critical UI text"
+      - "Internal documentation"
+
+  3:
+    label: "Medium"
+    description: "Errors affect functionality but not critically"
+    examples:
+      - "Report generation"
+      - "Non-financial calculations"
+
+  4:
+    label: "High"
+    description: "Errors could cause significant issues"
+    examples:
+      - "Authentication logic"
+      - "Data validation"
+
+  5:
+    label: "Critical"
+    description: "Errors could have severe consequences"
+    examples:
+      - "Financial transactions"
+      - "Medical data processing"
+      - "Security-critical operations"
