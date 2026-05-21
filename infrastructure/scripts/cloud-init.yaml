@@ -1,10 +1,10 @@
 #cloud-config
-
-# Cloud-init configuration for LLMBench runner
-# Installs Ollama, Python, and dependencies
+# LLMBench worker provisioning
+# Installs Ollama, pulls models, clones LLMBench, starts the worker agent.
+# Total boot time: ~5-10 min depending on model size.
 
 package_update: true
-package_upgrade: true
+package_upgrade: false
 
 packages:
   - curl
@@ -12,65 +12,14 @@ packages:
   - python3
   - python3-pip
   - python3-venv
-  - build-essential
   - jq
 
 write_files:
-  - path: /opt/llmbench/models.json
-    content: ${models_to_pull}
-    permissions: '0644'
-
   - path: /opt/llmbench/config.env
     permissions: '0644'
     content: |
       CONTROLLER_URL=${controller_url}
       WORKER_ID=${worker_id}
-
-  - path: /opt/llmbench/setup.sh
-    permissions: '0755'
-    content: |
-      #!/bin/bash
-      set -e
-
-      echo "=== LLMBench Setup Started ==="
-
-      # Install Ollama
-      echo "Installing Ollama..."
-      curl -fsSL https://ollama.ai/install.sh | sh
-
-      # Start Ollama service
-      echo "Starting Ollama service..."
-      systemctl enable ollama
-      systemctl start ollama
-
-      # Wait for Ollama to be ready
-      echo "Waiting for Ollama to be ready..."
-      for i in {1..30}; do
-        if curl -s http://localhost:11434/api/tags > /dev/null; then
-          echo "Ollama is ready!"
-          break
-        fi
-        echo "Waiting... ($i/30)"
-        sleep 2
-      done
-
-      # Pull models
-      echo "Pulling models from models.json..."
-      if [ -f /opt/llmbench/models.json ]; then
-        for model in $(cat /opt/llmbench/models.json | jq -r '.[]'); do
-          echo "Pulling model: $model"
-          ollama pull "$model" || echo "Failed to pull $model"
-        done
-      fi
-
-      # Setup Python environment
-      echo "Setting up Python environment..."
-      python3 -m venv /opt/llmbench/venv
-      source /opt/llmbench/venv/bin/activate
-
-      # Mark setup as complete
-      touch /opt/llmbench/setup-complete
-      echo "=== LLMBench Setup Complete ==="
 
   - path: /etc/systemd/system/llmbench-worker.service
     permissions: '0644'
@@ -83,22 +32,60 @@ write_files:
       [Service]
       Type=simple
       User=ubuntu
-      WorkingDirectory=/opt/llmbench
+      WorkingDirectory=/opt/llmbench/app
       EnvironmentFile=/opt/llmbench/config.env
-      ExecStartPre=/bin/bash -c 'while [ ! -f /opt/llmbench/setup-complete ]; do sleep 5; done'
-      ExecStart=/opt/llmbench/venv/bin/llmbench worker --controller-url $CONTROLLER_URL --worker-id $WORKER_ID
-      Restart=always
-      RestartSec=10
+      ExecStartPre=/bin/bash -c 'until [ -f /opt/llmbench/setup-complete ]; do sleep 5; done'
+      ExecStart=/opt/llmbench/venv/bin/llmbench worker \
+        --controller-url $CONTROLLER_URL \
+        --worker-id $WORKER_ID
+      Restart=on-failure
+      RestartSec=15
 
       [Install]
       WantedBy=multi-user.target
 
 runcmd:
   - mkdir -p /opt/llmbench
-  - chown -R ubuntu:ubuntu /opt/llmbench
-  - sudo -u ubuntu /opt/llmbench/setup.sh > /opt/llmbench/setup.log 2>&1
-  - systemctl daemon-reload
-  - systemctl enable llmbench-worker.service
-  - systemctl start llmbench-worker.service
+  - chown ubuntu:ubuntu /opt/llmbench
 
-final_message: "LLMBench worker is ready after $UPTIME seconds"
+  # Install Ollama
+  - curl -fsSL https://ollama.ai/install.sh | sh
+  - systemctl enable ollama
+  - systemctl start ollama
+
+  # Wait for Ollama to be ready (up to 60s)
+  - |
+    for i in $(seq 1 30); do
+      if curl -sf http://localhost:11434/api/tags > /dev/null; then break; fi
+      echo "Waiting for Ollama ($i/30)..."
+      sleep 2
+    done
+
+  # Pull models (written by Terraform as JSON array)
+  - echo '${models_to_pull}' > /tmp/models.json
+  - |
+    for model in $(jq -r '.[]' /tmp/models.json); do
+      echo "Pulling $model..."
+      ollama pull "$model" 2>&1 | tee -a /opt/llmbench/setup.log || true
+    done
+
+  # Clone LLMBench and install
+  - git clone ${repo_url} /opt/llmbench/app
+  - python3 -m venv /opt/llmbench/venv
+  - /opt/llmbench/venv/bin/pip install --quiet --upgrade pip
+  - /opt/llmbench/venv/bin/pip install --quiet -e /opt/llmbench/app
+  - chown -R ubuntu:ubuntu /opt/llmbench
+
+  # Start worker agent (only if controller_url is set)
+  - systemctl daemon-reload
+  - |
+    source /opt/llmbench/config.env
+    if [ -n "$CONTROLLER_URL" ]; then
+      systemctl enable llmbench-worker.service
+      systemctl start llmbench-worker.service
+    fi
+
+  - touch /opt/llmbench/setup-complete
+  - echo "=== LLMBench worker ready ===" >> /opt/llmbench/setup.log
+
+final_message: "LLMBench worker provisioning complete after $UPTIME seconds"

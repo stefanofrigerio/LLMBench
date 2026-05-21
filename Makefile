@@ -47,4 +47,20 @@ run-controller:  ## Start the controller server
 setup:  ## Initial setup (Poetry + venv)
 	./setup-venv.sh
 
+# --- GCP Terraform commands ---
+tf-init:  ## Initialize Terraform for GCP
+	cd infrastructure/gcp && terraform init
+
+tf-plan:  ## Preview GCP infrastructure changes (requires terraform.tfvars)
+	cd infrastructure/gcp && terraform plan
+
+tf-apply:  ## Provision GCP workers (requires terraform.tfvars)
+	cd infrastructure/gcp && terraform apply
+
+tf-destroy:  ## Destroy all GCP workers for a run
+	cd infrastructure/gcp && terraform destroy
+
+tf-output:  ## Show IPs and SSH commands for running workers
+	cd infrastructure/gcp && terraform output
+
 .DEFAULT_GOAL := help

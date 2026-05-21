@@ -52,3 +52,17 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
