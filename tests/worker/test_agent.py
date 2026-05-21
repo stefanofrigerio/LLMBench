@@ -35,7 +35,6 @@ def sample_task():
             "input_data": "Write a function to reverse a string",
             "expected_output": "def reverse_string(s): return s[::-1]",
             "complexity": 2,
-            "sensitivity": 2,
         },
     }
 
@@ -160,7 +159,6 @@ class TestWorkerAgent:
         assert result.model_name == "test-model"
         assert result.point.capability == Capability.CODE_GENERATION
         assert result.point.complexity == 2
-        assert result.point.sensitivity == 2
         assert 0.0 <= result.score <= 1.0
         assert result.latency_ms > 0
 
@@ -202,7 +200,7 @@ class TestWorkerAgent:
         from src.llmbench.cube import BenchmarkResult, BenchmarkPoint
 
         result = BenchmarkResult(
-            point=BenchmarkPoint(Capability.CODE_GENERATION, 2, 2),
+            point=BenchmarkPoint(Capability.CODE_GENERATION, 2),
             model_name="test-model",
             score=0.95,
             latency_ms=1234.5,

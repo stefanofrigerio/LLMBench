@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
-from ..cube import BenchmarkResult
+from ..cube import BenchmarkResult, sensitivity_to_threshold
 
 
 class SQLiteStorage:
@@ -19,16 +19,13 @@ class SQLiteStorage:
         self._init_db()
 
     def _init_db(self):
-        """Initialize database schema"""
         with sqlite3.connect(self.db_path) as conn:
-            # Main results table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS benchmark_results (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT NOT NULL,
                     capability TEXT NOT NULL,
                     complexity INTEGER NOT NULL,
-                    sensitivity INTEGER NOT NULL,
                     model_name TEXT NOT NULL,
                     score REAL NOT NULL,
                     latency_ms REAL NOT NULL,
@@ -41,7 +38,6 @@ class SQLiteStorage:
                 )
             """)
 
-            # Benchmark runs tracking
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS benchmark_runs (
                     run_id TEXT PRIMARY KEY,
@@ -53,7 +49,6 @@ class SQLiteStorage:
                 )
             """)
 
-            # Worker events tracking
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS worker_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,7 +67,7 @@ class SQLiteStorage:
 
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_point
-                ON benchmark_results(capability, complexity, sensitivity)
+                ON benchmark_results(capability, complexity)
             """)
 
             conn.execute("""
@@ -88,7 +83,6 @@ class SQLiteStorage:
     def save_result(self, result: BenchmarkResult):
         """Save a single benchmark result"""
         with sqlite3.connect(self.db_path) as conn:
-            # Extract run_id and worker_id from metadata if present
             run_id = None
             worker_id = None
             if result.metadata:
@@ -97,15 +91,14 @@ class SQLiteStorage:
 
             conn.execute("""
                 INSERT INTO benchmark_results
-                (timestamp, capability, complexity, sensitivity, model_name,
+                (timestamp, capability, complexity, model_name,
                  score, latency_ms, cost_estimate, error, raw_output, metadata,
                  run_id, worker_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now().isoformat(),
                 result.point.capability.value,
                 result.point.complexity,
-                result.point.sensitivity,
                 result.model_name,
                 result.score,
                 result.latency_ms,
@@ -114,25 +107,63 @@ class SQLiteStorage:
                 result.raw_output,
                 json.dumps(result.metadata) if result.metadata else None,
                 run_id,
-                worker_id
+                worker_id,
             ))
 
     def save_results(self, results: List[BenchmarkResult]):
-        """Save multiple benchmark results"""
         for result in results:
             self.save_result(result)
 
-    def get_best_model(
+    def recommend_model(
         self,
         capability: str,
         complexity: int,
         sensitivity: int,
-        min_score: float = 0.8
     ) -> Optional[dict]:
         """
-        Get the best model for a specific point in the cube.
-        Returns the model with highest score above min_score threshold,
-        with lowest cost as tiebreaker.
+        Recommend the best model for a given (capability, complexity, sensitivity) triple.
+
+        Sensitivity is a business-context parameter that maps linearly to a minimum
+        score threshold (1→0.60, 2→0.70, 3→0.80, 4→0.90, 5→0.95).
+
+        Returns the model with the highest average score above the threshold,
+        with lowest latency as tiebreaker. Returns None if no model qualifies —
+        meaning a proprietary model should be used instead.
+        """
+        min_score = sensitivity_to_threshold(sensitivity)
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT
+                    model_name,
+                    AVG(score) as avg_score,
+                    AVG(latency_ms) as avg_latency,
+                    AVG(cost_estimate) as avg_cost,
+                    COUNT(*) as sample_count
+                FROM benchmark_results
+                WHERE capability = ?
+                  AND complexity = ?
+                  AND error IS NULL
+                GROUP BY model_name
+                HAVING avg_score >= ?
+                ORDER BY avg_score DESC, avg_latency ASC
+                LIMIT 1
+            """, (capability, complexity, min_score))
+
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return {**dict(row), "min_score_threshold": min_score, "sensitivity": sensitivity}
+
+    def get_all_scores(
+        self,
+        capability: str,
+        complexity: int,
+    ) -> List[dict]:
+        """
+        Return the performance array for a (capability, complexity) point:
+        all models with their average score and latency, ordered by score desc.
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -146,53 +177,42 @@ class SQLiteStorage:
                 FROM benchmark_results
                 WHERE capability = ?
                   AND complexity = ?
-                  AND sensitivity = ?
                   AND error IS NULL
                 GROUP BY model_name
-                HAVING avg_score >= ?
-                ORDER BY avg_score DESC, avg_cost ASC
-                LIMIT 1
-            """, (capability, complexity, sensitivity, min_score))
+                ORDER BY avg_score DESC
+            """, (capability, complexity))
 
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            return [dict(row) for row in cursor.fetchall()]
 
-    def get_model_summary(self, model_name: str) -> dict:
+    def get_model_summary(self, model_name: str) -> List[dict]:
         """Get performance summary for a model across all capabilities"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT
                     capability,
+                    complexity,
                     AVG(score) as avg_score,
                     AVG(latency_ms) as avg_latency,
                     COUNT(*) as test_count,
                     SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) as error_count
                 FROM benchmark_results
                 WHERE model_name = ?
-                GROUP BY capability
+                GROUP BY capability, complexity
+                ORDER BY capability, complexity
             """, (model_name,))
 
             return [dict(row) for row in cursor.fetchall()]
 
     def create_run(self, run_id: str, worker_count: int, total_tasks: int):
-        """Create a new benchmark run record"""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO benchmark_runs
                 (run_id, created_at, status, worker_count, total_tasks, completed_tasks)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                run_id,
-                datetime.now().isoformat(),
-                "running",
-                worker_count,
-                total_tasks,
-                0
-            ))
+            """, (run_id, datetime.now().isoformat(), "running", worker_count, total_tasks, 0))
 
     def update_run_status(self, run_id: str, status: str, completed_tasks: Optional[int] = None):
-        """Update benchmark run status"""
         with sqlite3.connect(self.db_path) as conn:
             if completed_tasks is not None:
                 conn.execute("""
@@ -202,19 +222,15 @@ class SQLiteStorage:
                 """, (status, completed_tasks, run_id))
             else:
                 conn.execute("""
-                    UPDATE benchmark_runs
-                    SET status = ?
-                    WHERE run_id = ?
+                    UPDATE benchmark_runs SET status = ? WHERE run_id = ?
                 """, (status, run_id))
 
     def get_run_status(self, run_id: str) -> Optional[dict]:
-        """Get status of a benchmark run"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT * FROM benchmark_runs
-                WHERE run_id = ?
-            """, (run_id,))
+            cursor = conn.execute(
+                "SELECT * FROM benchmark_runs WHERE run_id = ?", (run_id,)
+            )
             row = cursor.fetchone()
             return dict(row) if row else None
 
@@ -223,24 +239,20 @@ class SQLiteStorage:
         run_id: str,
         worker_id: str,
         event_type: str,
-        metadata: Optional[dict] = None
+        metadata: Optional[dict] = None,
     ):
-        """Log a worker event"""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO worker_events
                 (run_id, worker_id, event_type, timestamp, metadata)
                 VALUES (?, ?, ?, ?, ?)
             """, (
-                run_id,
-                worker_id,
-                event_type,
+                run_id, worker_id, event_type,
                 datetime.now().isoformat(),
-                json.dumps(metadata) if metadata else None
+                json.dumps(metadata) if metadata else None,
             ))
 
     def get_worker_stats(self, run_id: str) -> List[dict]:
-        """Get per-worker statistics for a run"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""

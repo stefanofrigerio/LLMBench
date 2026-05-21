@@ -3,7 +3,6 @@ Main benchmark runner
 """
 
 import time
-import asyncio
 from typing import List
 from ..cube import BenchmarkPoint, BenchmarkResult, Capability
 from ..models.base import BaseModel
@@ -11,7 +10,7 @@ from ..capabilities.base import CapabilityTest, TestCase
 
 
 class BenchmarkRunner:
-    """Runs benchmarks across the capability-complexity-sensitivity cube"""
+    """Runs benchmarks across the capability × complexity space"""
 
     def __init__(self, models: List[BaseModel], capability_tests: dict[Capability, CapabilityTest]):
         self.models = models
@@ -21,14 +20,13 @@ class BenchmarkRunner:
         self,
         model: BaseModel,
         capability: Capability,
-        test_case: TestCase
+        test_case: TestCase,
     ) -> BenchmarkResult:
         """Run a single test case on a model"""
 
         point = BenchmarkPoint(
             capability=capability,
             complexity=test_case.complexity,
-            sensitivity=test_case.sensitivity
         )
 
         capability_test = self.capability_tests[capability]
@@ -48,7 +46,7 @@ class BenchmarkRunner:
                 latency_ms=latency_ms,
                 cost_estimate=self._estimate_cost(latency_ms, len(output)),
                 raw_output=output,
-                metadata=test_case.metadata
+                metadata=test_case.metadata,
             )
 
         except Exception as e:
@@ -58,36 +56,31 @@ class BenchmarkRunner:
                 score=0.0,
                 latency_ms=0.0,
                 cost_estimate=0.0,
-                error=str(e)
+                error=str(e),
             )
 
     async def run_capability(
         self,
         model: BaseModel,
-        capability: Capability
+        capability: Capability,
     ) -> List[BenchmarkResult]:
         """Run all test cases for a capability on a model"""
-
         capability_test = self.capability_tests[capability]
-        test_cases = capability_test.get_test_cases()
-
         results = []
-        for test_case in test_cases:
+        for test_case in capability_test.get_test_cases():
             result = await self.run_single_test(model, capability, test_case)
             results.append(result)
-
         return results
 
     async def run_full_benchmark(self) -> List[BenchmarkResult]:
         """Run all benchmarks for all models and capabilities"""
-
         all_results = []
 
         for model in self.models:
             print(f"Benchmarking model: {model.name}")
 
             if not await model.health_check():
-                print(f"  ⚠️  Model {model.name} failed health check, skipping")
+                print(f"  Model {model.name} failed health check, skipping")
                 continue
 
             for capability in self.capability_tests.keys():
@@ -98,5 +91,4 @@ class BenchmarkRunner:
         return all_results
 
     def _estimate_cost(self, latency_ms: float, output_length: int) -> float:
-        """Estimate relative cost based on latency and output length"""
         return (latency_ms / 1000) * (output_length / 1000)

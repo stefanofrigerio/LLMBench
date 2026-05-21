@@ -10,30 +10,20 @@ from src.llmbench.cube import BenchmarkResult, BenchmarkPoint, Capability
 
 @pytest.fixture
 def temp_db():
-    """Fixture for temporary database"""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
-
     yield db_path
-
-    # Cleanup
     Path(db_path).unlink(missing_ok=True)
 
 
 @pytest.fixture
 def storage(temp_db):
-    """Fixture for SQLite storage"""
     return SQLiteStorage(temp_db)
 
 
 @pytest.fixture
 def sample_result():
-    """Fixture for sample benchmark result"""
-    point = BenchmarkPoint(
-        capability=Capability.CODE_GENERATION,
-        complexity=3,
-        sensitivity=4,
-    )
+    point = BenchmarkPoint(capability=Capability.CODE_GENERATION, complexity=3)
     return BenchmarkResult(
         point=point,
         model_name="test-model",
@@ -45,319 +35,240 @@ def sample_result():
 
 
 class TestSQLiteStorage:
-    """Tests for SQLiteStorage class"""
 
     def test_init_creates_database(self, temp_db):
-        """Test database initialization creates tables"""
         storage = SQLiteStorage(temp_db)
-
-        # Database file should exist
         assert Path(temp_db).exists()
-
-        # Tables should be created (verify by inserting)
         result = BenchmarkResult(
-            point=BenchmarkPoint(Capability.CODE_GENERATION, 1, 1),
+            point=BenchmarkPoint(Capability.CODE_GENERATION, 1),
             model_name="test",
             score=1.0,
             latency_ms=100.0,
             cost_estimate=0.0,
         )
-        storage.save_result(result)  # Should not raise
+        storage.save_result(result)  # should not raise
 
     def test_save_single_result(self, storage, sample_result):
-        """Test saving a single result"""
         storage.save_result(sample_result)
 
-        # Verify it was saved
         import sqlite3
-
         with sqlite3.connect(storage.db_path) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM benchmark_results")
-            count = cursor.fetchone()[0]
-            assert count == 1
+            assert cursor.fetchone()[0] == 1
 
-            cursor = conn.execute("SELECT * FROM benchmark_results")
+            cursor = conn.execute("SELECT model_name, score FROM benchmark_results")
             row = cursor.fetchone()
-            assert row[5] == "test-model"  # model_name
-            assert row[6] == 0.85  # score
+            assert row[0] == "test-model"
+            assert row[1] == 0.85
 
     def test_save_multiple_results(self, storage):
-        """Test saving multiple results"""
-        results = []
-        for i in range(5):
-            point = BenchmarkPoint(Capability.CODE_GENERATION, i + 1, i + 1)
-            result = BenchmarkResult(
-                point=point,
+        results = [
+            BenchmarkResult(
+                point=BenchmarkPoint(Capability.CODE_GENERATION, i + 1),
                 model_name=f"model-{i}",
                 score=0.5 + i * 0.1,
                 latency_ms=1000.0 + i * 100,
                 cost_estimate=0.01 * i,
             )
-            results.append(result)
-
+            for i in range(5)
+        ]
         storage.save_results(results)
 
         import sqlite3
-
         with sqlite3.connect(storage.db_path) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM benchmark_results")
-            count = cursor.fetchone()[0]
-            assert count == 5
+            assert cursor.fetchone()[0] == 5
 
     def test_save_result_with_metadata(self, storage):
-        """Test saving result with metadata"""
-        point = BenchmarkPoint(Capability.CODE_GENERATION, 3, 4)
         result = BenchmarkResult(
-            point=point,
+            point=BenchmarkPoint(Capability.CODE_GENERATION, 3),
             model_name="test-model",
             score=0.85,
             latency_ms=1500.0,
             cost_estimate=0.01,
             metadata={"run_id": "run-123", "worker_id": "worker-1"},
         )
-
         storage.save_result(result)
 
         import sqlite3
-
         with sqlite3.connect(storage.db_path) as conn:
             cursor = conn.execute("SELECT run_id, worker_id FROM benchmark_results")
             row = cursor.fetchone()
             assert row[0] == "run-123"
             assert row[1] == "worker-1"
 
-    def test_get_best_model_single_model(self, storage):
-        """Test getting best model with single model"""
-        for i in range(3):
-            point = BenchmarkPoint(Capability.CODE_GENERATION, 3, 4)
-            result = BenchmarkResult(
-                point=point,
-                model_name="test-model",
-                score=0.8 + i * 0.05,
-                latency_ms=1500.0,
-                cost_estimate=0.01,
-            )
-            storage.save_result(result)
+    # --- recommend_model tests ---
 
-        best = storage.get_best_model(
-            capability="code_generation",
-            complexity=3,
-            sensitivity=4,
-            min_score=0.8,
-        )
-
-        assert best is not None
-        assert best["model_name"] == "test-model"
-        assert best["avg_score"] >= 0.85
-        assert best["sample_count"] == 3
-
-    def test_get_best_model_multiple_models(self, storage):
-        """Test getting best model chooses highest score"""
-        models = [
-            ("model-low", 0.75),
-            ("model-high", 0.95),
-            ("model-medium", 0.85),
-        ]
-
-        for model_name, score in models:
-            point = BenchmarkPoint(Capability.CODE_GENERATION, 3, 4)
-            result = BenchmarkResult(
-                point=point,
+    def test_recommend_model_returns_best(self, storage):
+        """Returns model with highest score above threshold for the given sensitivity"""
+        for model_name, score in [("model-low", 0.75), ("model-high", 0.95), ("model-mid", 0.85)]:
+            storage.save_result(BenchmarkResult(
+                point=BenchmarkPoint(Capability.CODE_GENERATION, 3),
                 model_name=model_name,
                 score=score,
-                latency_ms=1500.0,
+                latency_ms=1000.0,
                 cost_estimate=0.01,
-            )
-            storage.save_result(result)
+            ))
 
-        best = storage.get_best_model(
-            capability="code_generation",
-            complexity=3,
-            sensitivity=4,
-            min_score=0.8,
-        )
+        # sensitivity=3 → threshold=0.80; model-low (0.75) excluded
+        rec = storage.recommend_model("code_generation", complexity=3, sensitivity=3)
+        assert rec is not None
+        assert rec["model_name"] == "model-high"
+        assert rec["sensitivity"] == 3
+        assert rec["min_score_threshold"] == 0.80
 
-        assert best is not None
-        assert best["model_name"] == "model-high"
-        assert best["avg_score"] == 0.95
-
-    def test_get_best_model_below_threshold(self, storage, sample_result):
-        """Test get_best_model returns None if below threshold"""
-        sample_result.score = 0.5  # Low score
+    def test_recommend_model_returns_none_when_none_qualifies(self, storage, sample_result):
+        sample_result.score = 0.5
         storage.save_result(sample_result)
 
-        best = storage.get_best_model(
-            capability="code_generation",
-            complexity=3,
-            sensitivity=4,
-            min_score=0.8,  # Higher threshold
-        )
+        # sensitivity=5 → threshold=0.95; nothing qualifies
+        rec = storage.recommend_model("code_generation", complexity=3, sensitivity=5)
+        assert rec is None
 
-        assert best is None
+    def test_recommend_model_sensitivity_thresholds(self, storage):
+        """Each sensitivity level maps to the correct threshold"""
+        for s, expected_threshold in [(1, 0.60), (2, 0.70), (3, 0.80), (4, 0.90), (5, 0.95)]:
+            # Store a model that barely passes the threshold
+            storage.save_result(BenchmarkResult(
+                point=BenchmarkPoint(Capability.CODE_GENERATION, s),
+                model_name=f"model-s{s}",
+                score=expected_threshold,
+                latency_ms=1000.0,
+                cost_estimate=0.01,
+            ))
+            rec = storage.recommend_model("code_generation", complexity=s, sensitivity=s)
+            assert rec is not None, f"Expected recommendation for sensitivity={s}"
+            assert rec["min_score_threshold"] == expected_threshold
 
-    def test_get_best_model_cost_tiebreaker(self, storage):
-        """Test cost is used as tiebreaker for equal scores"""
-        models = [
-            ("model-expensive", 0.9, 0.1),
-            ("model-cheap", 0.9, 0.01),
-        ]
+    def test_recommend_model_latency_tiebreaker(self, storage):
+        """Latency is tiebreaker when scores are equal"""
+        for model_name, latency in [("fast-model", 500.0), ("slow-model", 2000.0)]:
+            storage.save_result(BenchmarkResult(
+                point=BenchmarkPoint(Capability.CODE_GENERATION, 3),
+                model_name=model_name,
+                score=0.90,
+                latency_ms=latency,
+                cost_estimate=0.01,
+            ))
 
-        for model_name, score, cost in models:
-            point = BenchmarkPoint(Capability.CODE_GENERATION, 3, 4)
-            result = BenchmarkResult(
-                point=point,
+        rec = storage.recommend_model("code_generation", complexity=3, sensitivity=4)
+        assert rec is not None
+        assert rec["model_name"] == "fast-model"
+
+    def test_recommend_model_ignores_errors(self, storage):
+        """Results with errors are excluded from recommendation"""
+        storage.save_result(BenchmarkResult(
+            point=BenchmarkPoint(Capability.CODE_GENERATION, 3),
+            model_name="good-model",
+            score=0.90,
+            latency_ms=1000.0,
+            cost_estimate=0.01,
+        ))
+        storage.save_result(BenchmarkResult(
+            point=BenchmarkPoint(Capability.CODE_GENERATION, 3),
+            model_name="error-model",
+            score=0.99,
+            latency_ms=500.0,
+            cost_estimate=0.01,
+            error="crashed",
+        ))
+
+        rec = storage.recommend_model("code_generation", complexity=3, sensitivity=3)
+        assert rec is not None
+        assert rec["model_name"] == "good-model"
+
+    # --- get_all_scores tests ---
+
+    def test_get_all_scores_returns_sorted_array(self, storage):
+        """Returns all models sorted by score desc for a benchmark point"""
+        for model_name, score in [("model-a", 0.70), ("model-b", 0.90), ("model-c", 0.80)]:
+            storage.save_result(BenchmarkResult(
+                point=BenchmarkPoint(Capability.CODE_GENERATION, 3),
                 model_name=model_name,
                 score=score,
-                latency_ms=1500.0,
-                cost_estimate=cost,
-            )
-            storage.save_result(result)
+                latency_ms=1000.0,
+                cost_estimate=0.01,
+            ))
 
-        best = storage.get_best_model(
-            capability="code_generation",
-            complexity=3,
-            sensitivity=4,
-            min_score=0.8,
-        )
+        scores = storage.get_all_scores("code_generation", complexity=3)
+        assert len(scores) == 3
+        assert scores[0]["model_name"] == "model-b"
+        assert scores[1]["model_name"] == "model-c"
+        assert scores[2]["model_name"] == "model-a"
 
-        assert best is not None
-        assert best["model_name"] == "model-cheap"
+    def test_get_all_scores_empty(self, storage):
+        scores = storage.get_all_scores("code_generation", complexity=3)
+        assert scores == []
 
-    def test_get_best_model_ignores_errors(self, storage):
-        """Test get_best_model ignores results with errors"""
-        # Good result
-        point = BenchmarkPoint(Capability.CODE_GENERATION, 3, 4)
-        good_result = BenchmarkResult(
-            point=point,
-            model_name="good-model",
-            score=0.9,
-            latency_ms=1500.0,
-            cost_estimate=0.01,
-        )
-        storage.save_result(good_result)
-
-        # Error result
-        error_result = BenchmarkResult(
-            point=point,
-            model_name="error-model",
-            score=0.95,  # Higher score but has error
-            latency_ms=1500.0,
-            cost_estimate=0.01,
-            error="Test error",
-        )
-        storage.save_result(error_result)
-
-        best = storage.get_best_model(
-            capability="code_generation",
-            complexity=3,
-            sensitivity=4,
-            min_score=0.8,
-        )
-
-        assert best is not None
-        assert best["model_name"] == "good-model"  # Error model ignored
+    # --- get_model_summary tests ---
 
     def test_get_model_summary(self, storage):
-        """Test getting model summary"""
-        # Add results for different capabilities
-        capabilities = [
-            Capability.CODE_GENERATION,
-            Capability.TEXT_SUMMARIZATION,
-        ]
-
+        capabilities = [Capability.CODE_GENERATION, Capability.TEXT_SUMMARIZATION]
         for cap in capabilities:
             for i in range(3):
-                point = BenchmarkPoint(cap, i + 1, i + 1)
-                result = BenchmarkResult(
-                    point=point,
+                storage.save_result(BenchmarkResult(
+                    point=BenchmarkPoint(cap, i + 1),
                     model_name="test-model",
                     score=0.8 + i * 0.05,
                     latency_ms=1000.0 + i * 100,
                     cost_estimate=0.01,
-                )
-                storage.save_result(result)
+                ))
 
         summary = storage.get_model_summary("test-model")
-
-        assert len(summary) == 2  # Two capabilities
+        assert len(summary) == 6  # 2 capabilities × 3 complexity levels
         assert any(row["capability"] == "code_generation" for row in summary)
         assert any(row["capability"] == "text_summarization" for row in summary)
 
-        # Check aggregation
-        code_gen = next(r for r in summary if r["capability"] == "code_generation")
-        assert code_gen["test_count"] == 3
-        assert code_gen["avg_score"] > 0.8
-
     def test_get_model_summary_includes_errors(self, storage):
-        """Test model summary includes error count"""
-        point = BenchmarkPoint(Capability.CODE_GENERATION, 3, 4)
-
-        # Add success
-        storage.save_result(
-            BenchmarkResult(point, "test-model", 0.9, 1000.0, 0.01)
-        )
-
-        # Add error
-        storage.save_result(
-            BenchmarkResult(point, "test-model", 0.0, 1000.0, 0.01, error="Error")
-        )
+        point = BenchmarkPoint(Capability.CODE_GENERATION, 3)
+        storage.save_result(BenchmarkResult(point, "test-model", 0.9, 1000.0, 0.01))
+        storage.save_result(BenchmarkResult(point, "test-model", 0.0, 1000.0, 0.01, error="Error"))
 
         summary = storage.get_model_summary("test-model")
-
         assert len(summary) == 1
         assert summary[0]["test_count"] == 2
         assert summary[0]["error_count"] == 1
 
+    # --- run tracking tests ---
+
     def test_create_run(self, storage):
-        """Test creating a benchmark run"""
-        storage.create_run(
-            run_id="run-123",
-            worker_count=3,
-            total_tasks=100,
-        )
+        storage.create_run(run_id="run-123", worker_count=3, total_tasks=100)
 
         import sqlite3
-
         with sqlite3.connect(storage.db_path) as conn:
             cursor = conn.execute("SELECT * FROM benchmark_runs WHERE run_id = ?", ("run-123",))
             row = cursor.fetchone()
             assert row is not None
-            assert row[0] == "run-123"  # run_id
-            assert row[2] == "running"  # status
-            assert row[3] == 3  # worker_count
-            assert row[4] == 100  # total_tasks
+            assert row[0] == "run-123"
+            assert row[2] == "running"
+            assert row[3] == 3
+            assert row[4] == 100
 
     def test_update_run_status(self, storage):
-        """Test updating run status"""
         storage.create_run("run-123", 3, 100)
         storage.update_run_status("run-123", "completed", completed_tasks=100)
 
         import sqlite3
-
         with sqlite3.connect(storage.db_path) as conn:
-            cursor = conn.execute("SELECT status, completed_tasks FROM benchmark_runs WHERE run_id = ?", ("run-123",))
+            cursor = conn.execute(
+                "SELECT status, completed_tasks FROM benchmark_runs WHERE run_id = ?", ("run-123",)
+            )
             row = cursor.fetchone()
             assert row[0] == "completed"
             assert row[1] == 100
 
     def test_get_run_status(self, storage):
-        """Test getting run status"""
         storage.create_run("run-123", 3, 100)
-
         status = storage.get_run_status("run-123")
-
         assert status is not None
         assert status["run_id"] == "run-123"
         assert status["status"] == "running"
         assert status["worker_count"] == 3
 
     def test_get_run_status_nonexistent(self, storage):
-        """Test get_run_status returns None for non-existent run"""
-        status = storage.get_run_status("nonexistent")
-        assert status is None
+        assert storage.get_run_status("nonexistent") is None
 
     def test_log_worker_event(self, storage):
-        """Test logging worker event"""
         storage.log_worker_event(
             run_id="run-123",
             worker_id="worker-1",
@@ -366,37 +277,28 @@ class TestSQLiteStorage:
         )
 
         import sqlite3
-
         with sqlite3.connect(storage.db_path) as conn:
-            cursor = conn.execute("SELECT * FROM worker_events")
+            cursor = conn.execute("SELECT run_id, worker_id, event_type FROM worker_events")
             row = cursor.fetchone()
-            assert row is not None
-            assert row[1] == "run-123"  # run_id
-            assert row[2] == "worker-1"  # worker_id
-            assert row[3] == "registered"  # event_type
+            assert row[0] == "run-123"
+            assert row[1] == "worker-1"
+            assert row[2] == "registered"
 
     def test_get_worker_stats(self, storage):
-        """Test getting per-worker statistics"""
-        # Add results from different workers
         for worker_id in ["worker-1", "worker-2"]:
             for i in range(3):
-                point = BenchmarkPoint(Capability.CODE_GENERATION, i + 1, i + 1)
-                result = BenchmarkResult(
-                    point=point,
+                storage.save_result(BenchmarkResult(
+                    point=BenchmarkPoint(Capability.CODE_GENERATION, i + 1),
                     model_name="test-model",
                     score=0.8 + i * 0.05,
                     latency_ms=1000.0 + i * 100,
                     cost_estimate=0.01,
                     metadata={"run_id": "run-123", "worker_id": worker_id},
-                )
-                storage.save_result(result)
+                ))
 
         stats = storage.get_worker_stats("run-123")
-
         assert len(stats) == 2
         worker_ids = {stat["worker_id"] for stat in stats}
         assert worker_ids == {"worker-1", "worker-2"}
-
-        # Each worker should have 3 tasks
         for stat in stats:
             assert stat["tasks_completed"] == 3

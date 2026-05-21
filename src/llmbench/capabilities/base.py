@@ -3,9 +3,8 @@ Base capability test interface
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict
-from ..cube import BenchmarkPoint
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -13,16 +12,15 @@ class TestCase:
     """A single test case for a capability"""
     input_data: str
     expected_output: Any
-    complexity: int
-    sensitivity: int
-    metadata: Dict[str, Any] | None = None
+    complexity: int          # 1-5: intrinsic difficulty of the task
+    metadata: Optional[Dict[str, Any]] = field(default=None)
 
 
 class CapabilityTest(ABC):
     """Base class for capability-specific tests"""
 
     @abstractmethod
-    def get_test_cases(self) -> list[TestCase]:
+    def get_test_cases(self) -> List[TestCase]:
         """Return all test cases for this capability"""
         pass
 

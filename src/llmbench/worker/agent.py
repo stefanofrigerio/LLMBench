@@ -267,7 +267,6 @@ class WorkerAgent:
                 input_data=test_case_data["input_data"],
                 expected_output=test_case_data["expected_output"],
                 complexity=test_case_data["complexity"],
-                sensitivity=test_case_data["sensitivity"],
             )
 
             # Get model and capability test
@@ -300,7 +299,6 @@ class WorkerAgent:
             point = BenchmarkPoint(
                 capability=capability,
                 complexity=test_case.complexity,
-                sensitivity=test_case.sensitivity,
             )
 
             result = BenchmarkResult(
@@ -332,7 +330,6 @@ class WorkerAgent:
                     "result": {
                         "capability": result.point.capability.value,
                         "complexity": result.point.complexity,
-                        "sensitivity": result.point.sensitivity,
                         "model_name": result.model_name,
                         "score": result.score,
                         "latency_ms": result.latency_ms,

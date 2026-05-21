@@ -28,7 +28,6 @@ def test_case():
         input_data="test input",
         expected_output="test output",
         complexity=3,
-        sensitivity=4,
     )
 
 
@@ -48,7 +47,6 @@ def benchmark_result():
     point = BenchmarkPoint(
         capability=Capability.CODE_GENERATION,
         complexity=3,
-        sensitivity=4,
     )
     return BenchmarkResult(
         point=point,

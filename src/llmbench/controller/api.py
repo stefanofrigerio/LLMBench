@@ -48,7 +48,12 @@ class DispatchRequest(BaseModel):
     models: List[dict]  # List of ModelConfig dicts
     capabilities: List[str]  # List of capability names
     complexity_range: tuple[int, int] = (1, 5)
-    sensitivity_range: tuple[int, int] = (1, 5)
+
+
+class RecommendRequest(BaseModel):
+    capability: str
+    complexity: int
+    sensitivity: int  # 1-5: business context — maps to min score threshold at query time
 
 
 class StatusResponse(BaseModel):
@@ -181,7 +186,6 @@ def create_app() -> FastAPI:
                     "input_data": work_item.test_case.input_data,
                     "expected_output": work_item.test_case.expected_output,
                     "complexity": work_item.test_case.complexity,
-                    "sensitivity": work_item.test_case.sensitivity,
                 },
             }
         }
@@ -196,7 +200,6 @@ def create_app() -> FastAPI:
             point = BenchmarkPoint(
                 capability=Capability(result_data["capability"]),
                 complexity=result_data["complexity"],
-                sensitivity=result_data["sensitivity"],
             )
 
             result = BenchmarkResult(
@@ -274,12 +277,11 @@ def create_app() -> FastAPI:
                 cap_test = capability_tests[capability]
                 test_cases = cap_test.get_test_cases()
 
-                # Filter by complexity/sensitivity range
+                # Filter by complexity range
                 filtered_cases = [
                     tc
                     for tc in test_cases
                     if req.complexity_range[0] <= tc.complexity <= req.complexity_range[1]
-                    and req.sensitivity_range[0] <= tc.sensitivity <= req.sensitivity_range[1]
                 ]
 
                 for test_case in filtered_cases:
@@ -339,7 +341,6 @@ def create_app() -> FastAPI:
                     "model_name": r.model_name,
                     "capability": r.point.capability.value,
                     "complexity": r.point.complexity,
-                    "sensitivity": r.point.sensitivity,
                     "score": r.score,
                     "latency_ms": r.latency_ms,
                     "cost_estimate": r.cost_estimate,
@@ -349,6 +350,42 @@ def create_app() -> FastAPI:
             ],
             "count": len(results),
         }
+
+    # Model recommendation endpoint
+    @app.post("/api/recommend")
+    async def recommend_model(req: RecommendRequest):
+        """
+        Return the best model for a given (capability, complexity, sensitivity) triple.
+
+        Sensitivity is a business-context parameter: it maps to a minimum score
+        threshold (1→0.60 … 5→0.95). Returns None if no open-source model qualifies
+        — the caller should fall back to a proprietary model.
+        """
+        recommendation = storage.recommend_model(
+            capability=req.capability,
+            complexity=req.complexity,
+            sensitivity=req.sensitivity,
+        )
+
+        if recommendation is None:
+            return {
+                "recommendation": None,
+                "message": (
+                    f"No open-source model meets sensitivity={req.sensitivity} "
+                    f"(min_score={req.sensitivity * 0.0875 + 0.5125:.2f}) "
+                    f"for {req.capability} at complexity={req.complexity}. "
+                    "Use a proprietary model."
+                ),
+            }
+
+        return {"recommendation": recommendation}
+
+    # All scores for a (capability, complexity) point
+    @app.get("/api/scores")
+    async def get_scores(capability: str, complexity: int):
+        """Return performance array for all models at a benchmark point."""
+        scores = storage.get_all_scores(capability=capability, complexity=complexity)
+        return {"capability": capability, "complexity": complexity, "models": scores}
 
     # WebSocket for real-time dashboard updates
     @app.websocket("/ws/dashboard")
