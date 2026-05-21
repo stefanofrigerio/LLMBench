@@ -103,11 +103,27 @@ variable "repo_url" {
 }
 
 # ---------------------------------------------------------------------------
+# Tailscale
+# ---------------------------------------------------------------------------
+
+variable "tailscale_auth_key" {
+  description = <<-EOT
+    Tailscale reusable ephemeral auth key.
+    Generate at https://login.tailscale.com/admin/settings/keys
+    Settings: Reusable ✓  Ephemeral ✓  (so workers auto-remove on shutdown)
+    Keep this out of version control — pass via TF_VAR_tailscale_auth_key env var
+    or terraform.tfvars (which is gitignored).
+  EOT
+  type        = string
+  sensitive   = true
+}
+
+# ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
 
 variable "allowed_ssh_cidrs" {
-  description = "CIDR ranges allowed to SSH into worker instances"
+  description = "CIDR ranges allowed to SSH into worker instances (Tailscale IP of your machine recommended)"
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

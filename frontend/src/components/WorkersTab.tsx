@@ -32,6 +32,8 @@ export default function WorkersTab({
   const [provConfig, setProvConfig] = useState<ProvisionConfig>({
     project_id: '',
     run_id: makeRunId(),
+    tailscale_auth_key: '',
+    controller_url: 'http://100.74.25.30:8000',
     machine_type: 'n1-standard-4',
     worker_count: 1,
     spot: true,
@@ -39,7 +41,6 @@ export default function WorkersTab({
     models_to_pull: ['deepseek-coder:6.7b', 'qwen2.5-coder:7b'],
     region: 'europe-west1',
     zone: 'europe-west1-b',
-    controller_url: '',
   })
 
   const [capabilities, setCapabilities] = useState<string[]>(['code_generation'])
@@ -53,6 +54,8 @@ export default function WorkersTab({
 
   const canProvision =
     provConfig.project_id.trim().length > 0 &&
+    provConfig.tailscale_auth_key.trim().length > 0 &&
+    provConfig.controller_url.trim().length > 0 &&
     provisionState.status !== 'provisioning' &&
     provisionState.status !== 'destroying'
 

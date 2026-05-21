@@ -55,6 +55,8 @@ export interface ProvisionState {
 export interface ProvisionConfig {
   project_id: string
   run_id: string
+  tailscale_auth_key: string
+  controller_url: string        // http://<tailscale-ip>:8000
   machine_type: string
   worker_count: number
   spot: boolean
@@ -62,5 +64,4 @@ export interface ProvisionConfig {
   models_to_pull: string[]
   region: string
   zone: string
-  controller_url: string
 }

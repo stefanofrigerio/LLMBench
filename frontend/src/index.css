@@ -765,3 +765,42 @@ tr:hover td {
 .model-selector-row .form-group {
   min-width: 200px;
 }
+
+/* ---- Form section divider ---- */
+.section-divider {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+/* ---- Field hints and label links ---- */
+.field-hint {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.field-hint code {
+  background: var(--surface-2);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 0.7rem;
+}
+
+.label-hint {
+  font-size: 0.72rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent);
+  margin-left: 0.5rem;
+  text-decoration: none;
+}
+
+.label-hint:hover { text-decoration: underline; }

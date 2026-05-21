@@ -1,21 +1,31 @@
 # Copy this file to terraform.tfvars and fill in your values.
-# Never commit terraform.tfvars — it contains project-specific config.
+# terraform.tfvars is gitignored — never commit it (contains auth key).
 
 # ---- Required ----
 project_id = "your-gcp-project-id"
 run_id     = "run-20250521"
 
-# ---- Location (defaults to europe-west1-b) ----
-# region = "us-central1"
-# zone   = "us-central1-a"
+# ---- Tailscale ----
+# Generate at https://login.tailscale.com/admin/settings/keys
+# Settings: Reusable ✓  Ephemeral ✓
+# Alternatively, set via env var to avoid storing in file:
+#   export TF_VAR_tailscale_auth_key="tskey-auth-..."
+tailscale_auth_key = "tskey-auth-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# ---- Controller ----
+# Your machine's Tailscale IP (run: tailscale ip -4)
+controller_url = "http://100.74.25.30:8000"
+
+# ---- Location ----
+# region = "europe-west1"
+# zone   = "europe-west1-b"
 
 # ---- Machine ----
-# CPU-only, small (fast/cheap for testing)
 machine_type = "n1-standard-4"
 disk_size_gb = 100
 spot         = true
 
-# GPU example (uncomment to use):
+# GPU example:
 # machine_type = "n1-standard-8"
 # gpu_type     = "nvidia-tesla-t4"
 # gpu_count    = 1
@@ -23,17 +33,11 @@ spot         = true
 # ---- Scale ----
 worker_count = 1
 
-# ---- Models to pull at boot ----
+# ---- Models ----
 models_to_pull = [
   "deepseek-coder:6.7b",
   "qwen2.5-coder:7b",
-  "llama3.1:8b",
 ]
 
-# ---- Distributed mode ----
-# Leave empty for standalone. Set to your controller's public URL for distributed mode.
-# controller_url = "https://your-ngrok-or-cloudflare-url.example.com"
-
-# ---- SSH access ----
-# Restrict to your IP for security: "1.2.3.4/32"
-# allowed_ssh_cidrs = ["0.0.0.0/0"]
+# ---- SSH access (optional, restrict to your Tailscale IP) ----
+# allowed_ssh_cidrs = ["100.74.25.30/32"]

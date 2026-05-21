@@ -99,56 +99,76 @@ pip install -e ".[dev]"
 
 ## Usage Modes
 
-LLMBench supports two execution modes:
-
 ### 1. 🏠 Local Mode
 Run benchmarks on your local machine with Ollama.
 
-### 2. ☁️ Cloud Mode
-Run benchmarks on cloud infrastructure (GCP/AWS) with powerful GPU instances.
+### 2. ☁️ Distributed Mode (Recommended)
+Local controller + multiple GCP workers coordinated via **Tailscale** private network.
 
-**👉 See [CLOUD.md](CLOUD.md) for complete cloud setup and usage guide.**
+## Quick Start — Distributed Mode
 
-## Prerequisites
+### Prerequisites
+- [Terraform](https://terraform.io) >= 1.5
+- `gcloud` CLI authenticated (`gcloud auth login && gcloud auth application-default login`)
+- [Tailscale](https://tailscale.com) installed on your machine
 
-### Local Mode
-LLMBench uses Ollama to run local open-source models:
+### 1. Generate a Tailscale auth key
+
+Go to [tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys) and create a key with:
+- **Reusable**: on
+- **Ephemeral**: on (workers auto-remove on shutdown)
+
+### 2. Start the controller
 
 ```bash
-# Install Ollama
-# Visit https://ollama.ai for installation instructions
+poetry install
+poetry run llmbench controller --port 8000
+```
 
-# Pull some models
+The dashboard is available at **http://localhost:8000**.
+
+### 3. Configure and provision workers via the UI
+
+Open the dashboard, go to the **Workers** tab and fill in:
+- GCP Project ID
+- Tailscale Auth Key
+- Controller URL: `http://<your-tailscale-ip>:8000`
+  - Find your Tailscale IP with: `tailscale ip -4`
+
+Click **Provision Workers** — Terraform creates the VMs, each one:
+1. Joins your Tailscale network (ephemeral node)
+2. Installs Ollama and pulls the selected models
+3. Starts the worker agent, which connects to your controller
+
+### 4. Run the benchmark
+
+Once workers appear as **idle** in the dashboard, click **Start Benchmark**.
+
+Results appear live in the **Results** tab: heatmap, recommendation widget, and filterable table.
+
+### 5. Teardown
+
+Click **Destroy Workers** in the UI, or run:
+```bash
+cd infrastructure/gcp && terraform destroy -var-file=tfvars-<run-id>.json
+```
+
+Workers automatically remove themselves from your Tailscale network on shutdown.
+
+---
+
+## Local Mode
+
+```bash
+# Install Ollama and pull models
 ollama pull deepseek-coder:6.7b
 ollama pull qwen2.5-coder:7b
-ollama pull llama3.1:8b
-ollama pull mistral:7b
+
+# Run benchmark script
+python examples/run_benchmark.py
 ```
 
-### Cloud Mode
-- Terraform (>= 1.0)
-- GCP CLI (`gcloud`) or AWS CLI (`aws`)
-- SSH key pair
-
-See [CLOUD.md](CLOUD.md) for detailed setup.
-
-## Quick Start
-
-### Cloud Mode (Recommended for Production)
-
-```bash
-# Run benchmark on GCP with GPU
-llmbench run --provider gcp --project my-project --gpu nvidia-tesla-t4
-
-# Run benchmark on AWS spot instance
-llmbench run --provider aws --region us-east-1 --machine g4dn.xlarge --spot
-```
-
-**Complete guide:** [CLOUD.md](CLOUD.md)
-
-### Local Mode
-
-#### Running Benchmarks (Python API)
+### Running Benchmarks (Python API)
 
 ```python
 import asyncio

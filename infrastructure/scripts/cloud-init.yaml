@@ -1,7 +1,11 @@
 #cloud-config
 # LLMBench worker provisioning
-# Installs Ollama, pulls models, clones LLMBench, starts the worker agent.
+# Installs Tailscale, Ollama, pulls models, clones LLMBench, starts the worker agent.
 # Total boot time: ~5-10 min depending on model size.
+#
+# Networking: workers join the controller's Tailscale network using a reusable ephemeral
+# auth key. The controller_url should use the controller's Tailscale IP (100.x.x.x).
+# No public IP or firewall rules needed.
 
 package_update: true
 package_upgrade: false
@@ -26,8 +30,8 @@ write_files:
     content: |
       [Unit]
       Description=LLMBench Worker Agent
-      After=network.target ollama.service
-      Wants=ollama.service
+      After=network.target tailscaled.service ollama.service
+      Wants=ollama.service tailscaled.service
 
       [Service]
       Type=simple
@@ -48,7 +52,12 @@ runcmd:
   - mkdir -p /opt/llmbench
   - chown ubuntu:ubuntu /opt/llmbench
 
-  # Install Ollama
+  # --- Tailscale ---
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  # Ephemeral=true: node is automatically removed from tailnet when it shuts down
+  - tailscale up --authkey="${tailscale_auth_key}" --hostname="${worker_id}" --ephemeral
+
+  # --- Ollama ---
   - curl -fsSL https://ollama.ai/install.sh | sh
   - systemctl enable ollama
   - systemctl start ollama
@@ -61,7 +70,7 @@ runcmd:
       sleep 2
     done
 
-  # Pull models (written by Terraform as JSON array)
+  # Pull models
   - echo '${models_to_pull}' > /tmp/models.json
   - |
     for model in $(jq -r '.[]' /tmp/models.json); do
@@ -76,14 +85,10 @@ runcmd:
   - /opt/llmbench/venv/bin/pip install --quiet -e /opt/llmbench/app
   - chown -R ubuntu:ubuntu /opt/llmbench
 
-  # Start worker agent (only if controller_url is set)
+  # Start worker agent
   - systemctl daemon-reload
-  - |
-    source /opt/llmbench/config.env
-    if [ -n "$CONTROLLER_URL" ]; then
-      systemctl enable llmbench-worker.service
-      systemctl start llmbench-worker.service
-    fi
+  - systemctl enable llmbench-worker.service
+  - systemctl start llmbench-worker.service
 
   - touch /opt/llmbench/setup-complete
   - echo "=== LLMBench worker ready ===" >> /opt/llmbench/setup.log

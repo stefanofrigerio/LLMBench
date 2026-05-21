@@ -64,10 +64,11 @@ resource "google_compute_instance" "worker" {
 
   metadata = {
     user-data = templatefile("${path.module}/../scripts/cloud-init.yaml", {
-      models_to_pull = jsonencode(var.models_to_pull)
-      controller_url = var.controller_url
-      worker_id      = "worker-${count.index}"
-      repo_url       = var.repo_url
+      models_to_pull     = jsonencode(var.models_to_pull)
+      controller_url     = var.controller_url
+      worker_id          = "llmbench-worker-${count.index}"
+      repo_url           = var.repo_url
+      tailscale_auth_key = var.tailscale_auth_key
     })
   }
 

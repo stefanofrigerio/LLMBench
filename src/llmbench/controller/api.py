@@ -60,6 +60,8 @@ class RecommendRequest(BaseModel):
 class ProvisionConfig(BaseModel):
     project_id: str
     run_id: str
+    tailscale_auth_key: str          # reusable ephemeral key from tailscale admin
+    controller_url: str              # http://<tailscale-ip>:8000
     machine_type: str = "n1-standard-4"
     worker_count: int = 1
     spot: bool = True
@@ -68,7 +70,6 @@ class ProvisionConfig(BaseModel):
     models_to_pull: List[str] = ["deepseek-coder:6.7b", "qwen2.5-coder:7b"]
     region: str = "europe-west1"
     zone: str = "europe-west1-b"
-    controller_url: str = ""
 
 
 class StatusResponse(BaseModel):
@@ -637,6 +638,7 @@ async def _run_terraform_provision(config: ProvisionConfig):
             "zone": config.zone,
             "models_to_pull": config.models_to_pull,
             "controller_url": config.controller_url,
+            "tailscale_auth_key": config.tailscale_auth_key,
         }
         if config.gpu_type:
             tfvars["gpu_type"] = config.gpu_type
