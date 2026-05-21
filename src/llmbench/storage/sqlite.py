@@ -21,6 +21,7 @@ class SQLiteStorage:
     def _init_db(self):
         """Initialize database schema"""
         with sqlite3.connect(self.db_path) as conn:
+            # Main results table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS benchmark_results (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +35,32 @@ class SQLiteStorage:
                     cost_estimate REAL NOT NULL,
                     error TEXT,
                     raw_output TEXT,
+                    metadata TEXT,
+                    run_id TEXT,
+                    worker_id TEXT
+                )
+            """)
+
+            # Benchmark runs tracking
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS benchmark_runs (
+                    run_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    worker_count INTEGER,
+                    total_tasks INTEGER,
+                    completed_tasks INTEGER DEFAULT 0
+                )
+            """)
+
+            # Worker events tracking
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS worker_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    worker_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
                     metadata TEXT
                 )
             """)
@@ -48,14 +75,32 @@ class SQLiteStorage:
                 ON benchmark_results(capability, complexity, sensitivity)
             """)
 
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_run_id
+                ON benchmark_results(run_id)
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_worker_events_run
+                ON worker_events(run_id, worker_id)
+            """)
+
     def save_result(self, result: BenchmarkResult):
         """Save a single benchmark result"""
         with sqlite3.connect(self.db_path) as conn:
+            # Extract run_id and worker_id from metadata if present
+            run_id = None
+            worker_id = None
+            if result.metadata:
+                run_id = result.metadata.get("run_id")
+                worker_id = result.metadata.get("worker_id")
+
             conn.execute("""
                 INSERT INTO benchmark_results
                 (timestamp, capability, complexity, sensitivity, model_name,
-                 score, latency_ms, cost_estimate, error, raw_output, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 score, latency_ms, cost_estimate, error, raw_output, metadata,
+                 run_id, worker_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now().isoformat(),
                 result.point.capability.value,
@@ -67,7 +112,9 @@ class SQLiteStorage:
                 result.cost_estimate,
                 result.error,
                 result.raw_output,
-                json.dumps(result.metadata) if result.metadata else None
+                json.dumps(result.metadata) if result.metadata else None,
+                run_id,
+                worker_id
             ))
 
     def save_results(self, results: List[BenchmarkResult]):
@@ -126,4 +173,84 @@ class SQLiteStorage:
                 GROUP BY capability
             """, (model_name,))
 
+            return [dict(row) for row in cursor.fetchall()]
+
+    def create_run(self, run_id: str, worker_count: int, total_tasks: int):
+        """Create a new benchmark run record"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO benchmark_runs
+                (run_id, created_at, status, worker_count, total_tasks, completed_tasks)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                run_id,
+                datetime.now().isoformat(),
+                "running",
+                worker_count,
+                total_tasks,
+                0
+            ))
+
+    def update_run_status(self, run_id: str, status: str, completed_tasks: Optional[int] = None):
+        """Update benchmark run status"""
+        with sqlite3.connect(self.db_path) as conn:
+            if completed_tasks is not None:
+                conn.execute("""
+                    UPDATE benchmark_runs
+                    SET status = ?, completed_tasks = ?
+                    WHERE run_id = ?
+                """, (status, completed_tasks, run_id))
+            else:
+                conn.execute("""
+                    UPDATE benchmark_runs
+                    SET status = ?
+                    WHERE run_id = ?
+                """, (status, run_id))
+
+    def get_run_status(self, run_id: str) -> Optional[dict]:
+        """Get status of a benchmark run"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM benchmark_runs
+                WHERE run_id = ?
+            """, (run_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def log_worker_event(
+        self,
+        run_id: str,
+        worker_id: str,
+        event_type: str,
+        metadata: Optional[dict] = None
+    ):
+        """Log a worker event"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO worker_events
+                (run_id, worker_id, event_type, timestamp, metadata)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                run_id,
+                worker_id,
+                event_type,
+                datetime.now().isoformat(),
+                json.dumps(metadata) if metadata else None
+            ))
+
+    def get_worker_stats(self, run_id: str) -> List[dict]:
+        """Get per-worker statistics for a run"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT
+                    worker_id,
+                    COUNT(*) as tasks_completed,
+                    AVG(score) as avg_score,
+                    AVG(latency_ms) as avg_latency
+                FROM benchmark_results
+                WHERE run_id = ? AND worker_id IS NOT NULL
+                GROUP BY worker_id
+            """, (run_id,))
             return [dict(row) for row in cursor.fetchall()]

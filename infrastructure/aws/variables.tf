@@ -53,3 +53,21 @@ variable "models_to_pull" {
     "llama3.1:8b"
   ]
 }
+
+variable "worker_count" {
+  description = "Number of worker instances to provision"
+  type        = number
+  default     = 1
+}
+
+variable "controller_url" {
+  description = "URL of the controller server (for worker registration)"
+  type        = string
+  default     = ""
+}
+
+variable "machine_type" {
+  description = "Alias for instance_type (for compatibility)"
+  type        = string
+  default     = ""
+}

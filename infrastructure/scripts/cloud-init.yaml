@@ -20,6 +20,12 @@ write_files:
     content: ${models_to_pull}
     permissions: '0644'
 
+  - path: /opt/llmbench/config.env
+    permissions: '0644'
+    content: |
+      CONTROLLER_URL=${controller_url}
+      WORKER_ID=${worker_id}
+
   - path: /opt/llmbench/setup.sh
     permissions: '0755'
     content: |
@@ -63,12 +69,36 @@ write_files:
       source /opt/llmbench/venv/bin/activate
 
       # Mark setup as complete
-      touch /opt/llmbench/.setup_complete
+      touch /opt/llmbench/setup-complete
       echo "=== LLMBench Setup Complete ==="
+
+  - path: /etc/systemd/system/llmbench-worker.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=LLMBench Worker Agent
+      After=network.target ollama.service
+      Wants=ollama.service
+
+      [Service]
+      Type=simple
+      User=ubuntu
+      WorkingDirectory=/opt/llmbench
+      EnvironmentFile=/opt/llmbench/config.env
+      ExecStartPre=/bin/bash -c 'while [ ! -f /opt/llmbench/setup-complete ]; do sleep 5; done'
+      ExecStart=/opt/llmbench/venv/bin/llmbench worker --controller-url $CONTROLLER_URL --worker-id $WORKER_ID
+      Restart=always
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
 
 runcmd:
   - mkdir -p /opt/llmbench
   - chown -R ubuntu:ubuntu /opt/llmbench
   - sudo -u ubuntu /opt/llmbench/setup.sh > /opt/llmbench/setup.log 2>&1
+  - systemctl daemon-reload
+  - systemctl enable llmbench-worker.service
+  - systemctl start llmbench-worker.service
 
-final_message: "LLMBench runner is ready after $UPTIME seconds"
+final_message: "LLMBench worker is ready after $UPTIME seconds"

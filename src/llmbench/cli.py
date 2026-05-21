@@ -6,6 +6,7 @@ import asyncio
 import argparse
 from pathlib import Path
 import sys
+import os
 
 from .cloud import CloudOrchestrator, CloudConfig
 
@@ -38,8 +39,86 @@ Examples:
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
-    # Run command
-    run_parser = subparsers.add_parser("run", help="Run full benchmark cycle")
+    # Controller command
+    controller_parser = subparsers.add_parser("controller", help="Start controller server")
+    controller_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to listen on (default: 8000)"
+    )
+    controller_parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host to bind to (default: 0.0.0.0)"
+    )
+
+    # Worker command
+    worker_parser = subparsers.add_parser("worker", help="Start worker agent")
+    worker_parser.add_argument(
+        "--controller-url",
+        required=True,
+        help="Controller URL (e.g., http://controller:8000)"
+    )
+    worker_parser.add_argument(
+        "--worker-id",
+        help="Unique worker ID (defaults to hostname)"
+    )
+    worker_parser.add_argument(
+        "--api-key",
+        help="API key for authentication"
+    )
+
+    # Dispatch command
+    dispatch_parser = subparsers.add_parser("dispatch", help="Dispatch distributed benchmark")
+    add_cloud_args(dispatch_parser)
+    dispatch_parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+        help="Number of worker instances to provision (default: 2)"
+    )
+    dispatch_parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep workers running after benchmark"
+    )
+    dispatch_parser.add_argument(
+        "--controller-port",
+        type=int,
+        default=8000,
+        help="Port for controller server (default: 8000)"
+    )
+
+    # Status command
+    status_parser = subparsers.add_parser("status", help="Check benchmark run status")
+    status_parser.add_argument(
+        "--run-id",
+        required=True,
+        help="Run ID to check"
+    )
+    status_parser.add_argument(
+        "--controller-url",
+        default="http://localhost:8000",
+        help="Controller URL (default: http://localhost:8000)"
+    )
+
+    # Cleanup command
+    cleanup_parser = subparsers.add_parser("cleanup", help="Cleanup worker infrastructure")
+    cleanup_parser.add_argument(
+        "--provider",
+        required=True,
+        choices=["gcp", "aws"],
+        help="Cloud provider"
+    )
+    cleanup_parser.add_argument(
+        "--run-id",
+        required=True,
+        help="Run ID to cleanup"
+    )
+
+    # Run command (legacy single-VM mode)
+    run_parser = subparsers.add_parser("run", help="Run full benchmark cycle (single VM)")
     add_cloud_args(run_parser)
     run_parser.add_argument(
         "--benchmark-script",
@@ -208,6 +287,183 @@ def cmd_destroy(args):
         sys.exit(1)
 
 
+async def cmd_controller(args):
+    """Execute controller command - start the controller server"""
+    from .controller.api import create_app
+    import uvicorn
+
+    print(f"🚀 Starting LLMBench Controller")
+    print(f"   Host: {args.host}")
+    print(f"   Port: {args.port}")
+    print(f"   Dashboard: http://{args.host if args.host != '0.0.0.0' else 'localhost'}:{args.port}")
+    print()
+
+    app = create_app()
+
+    config = uvicorn.Config(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level="info"
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+async def cmd_worker(args):
+    """Execute worker command - start a worker agent"""
+    from .worker.agent import WorkerAgent
+
+    api_key = args.api_key or os.getenv("LLMBENCH_API_KEY")
+
+    print(f"🤖 Starting LLMBench Worker")
+    print(f"   Worker ID: {args.worker_id or 'auto'}")
+    print(f"   Controller: {args.controller_url}")
+    print()
+
+    agent = WorkerAgent(
+        controller_url=args.controller_url,
+        worker_id=args.worker_id,
+        api_key=api_key
+    )
+
+    await agent.start()
+
+
+async def cmd_dispatch(args):
+    """Execute dispatch command - provision workers and dispatch benchmark"""
+    import time
+    import aiohttp
+
+    config = CloudConfig(
+        provider=args.provider,
+        project_id=args.project,
+        region=args.region,
+        machine_type=args.machine_type or ("n1-standard-4" if args.provider == "gcp" else "g4dn.xlarge"),
+        gpu_type=args.gpu_type,
+        ssh_key_path=args.ssh_key_path,
+        models_to_pull=args.models_to_pull,
+        use_spot=args.use_spot,
+    )
+
+    if config.provider == "gcp" and not config.project_id:
+        print("❌ Error: --project is required for GCP")
+        sys.exit(1)
+
+    from .controller.orchestrator import DistributedOrchestrator
+
+    project_root = Path(__file__).parent.parent.parent
+    orchestrator = DistributedOrchestrator(
+        config=config,
+        worker_count=args.workers,
+        project_root=project_root,
+        controller_port=args.controller_port
+    )
+
+    print(f"🚀 Dispatching distributed benchmark")
+    print(f"   Provider: {config.provider}")
+    print(f"   Workers: {args.workers}")
+    print(f"   Region: {config.region}")
+    print()
+
+    try:
+        # Start controller in background
+        print("1️⃣  Starting controller...")
+        controller_task = asyncio.create_task(orchestrator.start_controller())
+        await asyncio.sleep(3)  # Give controller time to start
+
+        # Provision workers
+        print("\n2️⃣  Provisioning workers...")
+        worker_ips = await orchestrator.provision_workers()
+        print(f"✅ Provisioned {len(worker_ips)} workers")
+
+        # Wait for workers to come online
+        print("\n3️⃣  Waiting for workers to register...")
+        await orchestrator.wait_for_workers(timeout=600)
+
+        # Dispatch benchmark
+        print("\n4️⃣  Dispatching benchmark tasks...")
+        await orchestrator.dispatch_benchmark()
+
+        # Monitor progress
+        print("\n5️⃣  Running benchmark...")
+        await orchestrator.wait_for_completion()
+
+        print("\n✅ Benchmark complete!")
+        print(f"   Results: results/benchmarks.db")
+        print(f"   Run ID: {orchestrator.run_id}")
+
+        if not args.keep:
+            print("\n6️⃣  Cleaning up workers...")
+            await orchestrator.destroy_workers()
+            print("✅ Cleanup complete")
+        else:
+            print(f"\n⚠️  Workers kept running (run_id: {orchestrator.run_id})")
+            print(f"   Cleanup with: llmbench cleanup --provider {config.provider} --run-id {orchestrator.run_id}")
+
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Interrupted - cleaning up...")
+        await orchestrator.destroy_workers()
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        print("\n⚠️  Attempting cleanup...")
+        try:
+            await orchestrator.destroy_workers()
+        except:
+            pass
+        sys.exit(1)
+    finally:
+        if controller_task and not controller_task.done():
+            controller_task.cancel()
+
+
+async def cmd_status(args):
+    """Execute status command - check benchmark run status"""
+    import aiohttp
+
+    url = f"{args.controller_url}/api/status"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+
+                    print(f"📊 Controller Status")
+                    print(f"   Run ID: {data.get('run_id', 'N/A')}")
+                    print()
+
+                    queue = data.get('queue_status', {})
+                    print(f"📋 Task Queue:")
+                    print(f"   Total: {queue.get('total_enqueued', 0)}")
+                    print(f"   Queued: {queue.get('queued', 0)}")
+                    print(f"   Running: {queue.get('pending', 0)}")
+                    print(f"   Completed: {queue.get('completed', 0)}")
+                    print(f"   Failed: {queue.get('failed', 0)}")
+                    print(f"   Progress: {queue.get('completion_rate', 0)*100:.1f}%")
+                    print()
+
+                    workers = data.get('worker_stats', {})
+                    print(f"🤖 Workers:")
+                    print(f"   Total: {workers.get('total_workers', 0)}")
+                    print(f"   Idle: {workers.get('idle', 0)}")
+                    print(f"   Busy: {workers.get('busy', 0)}")
+                    print(f"   Offline: {workers.get('offline', 0)}")
+                    print(f"   Tasks completed: {workers.get('total_tasks_completed', 0)}")
+                    print(f"   Tasks failed: {workers.get('total_tasks_failed', 0)}")
+                else:
+                    print(f"❌ Failed to get status: {resp.status}")
+                    sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error connecting to controller: {e}")
+        sys.exit(1)
+
+
+def cmd_cleanup(args):
+    """Execute cleanup command - same as destroy"""
+    cmd_destroy(args)
+
+
 def main():
     parser = create_parser()
     args = parser.parse_args()
@@ -217,7 +473,17 @@ def main():
         sys.exit(1)
 
     try:
-        if args.command == "run":
+        if args.command == "controller":
+            asyncio.run(cmd_controller(args))
+        elif args.command == "worker":
+            asyncio.run(cmd_worker(args))
+        elif args.command == "dispatch":
+            asyncio.run(cmd_dispatch(args))
+        elif args.command == "status":
+            asyncio.run(cmd_status(args))
+        elif args.command == "cleanup":
+            cmd_cleanup(args)
+        elif args.command == "run":
             asyncio.run(cmd_run(args))
         elif args.command == "provision":
             asyncio.run(cmd_provision(args))

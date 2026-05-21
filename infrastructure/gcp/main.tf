@@ -15,11 +15,12 @@ provider "google" {
 }
 
 resource "google_compute_instance" "llmbench" {
-  name         = "llmbench-runner-${var.run_id}"
+  count        = var.worker_count
+  name         = "llmbench-worker-${var.run_id}-${count.index}"
   machine_type = var.machine_type
   zone         = var.zone
 
-  tags = ["llmbench", "benchmark-runner"]
+  tags = ["llmbench", "benchmark-worker"]
 
   boot_disk {
     initialize_params {
@@ -42,7 +43,7 @@ resource "google_compute_instance" "llmbench" {
   scheduling {
     on_host_maintenance = var.gpu_type != "" ? "TERMINATE" : "MIGRATE"
     automatic_restart   = false
-    preemptible        = var.use_preemptible
+    preemptible        = var.use_spot || var.use_preemptible
   }
 
   network_interface {
@@ -54,9 +55,10 @@ resource "google_compute_instance" "llmbench" {
 
   metadata = {
     ssh-keys           = "${var.ssh_user}:${file(var.ssh_public_key_path)}"
-    startup-script     = file("${path.module}/../scripts/startup.sh")
     user-data          = templatefile("${path.module}/../scripts/cloud-init.yaml", {
       models_to_pull = jsonencode(var.models_to_pull)
+      controller_url = var.controller_url
+      worker_id      = "worker-${count.index}"
     })
   }
 
@@ -94,17 +96,27 @@ resource "google_compute_firewall" "llmbench_ssh" {
   target_tags   = ["llmbench"]
 }
 
+output "worker_ips" {
+  value       = google_compute_instance.llmbench[*].network_interface[0].access_config[0].nat_ip
+  description = "Public IP addresses of all worker instances"
+}
+
+output "worker_names" {
+  value       = google_compute_instance.llmbench[*].name
+  description = "Names of all worker instances"
+}
+
 output "instance_ip" {
-  value       = google_compute_instance.llmbench.network_interface[0].access_config[0].nat_ip
-  description = "Public IP address of the benchmark instance"
+  value       = length(google_compute_instance.llmbench) > 0 ? google_compute_instance.llmbench[0].network_interface[0].access_config[0].nat_ip : null
+  description = "Public IP address of first instance (backward compatibility)"
 }
 
 output "instance_name" {
-  value       = google_compute_instance.llmbench.name
-  description = "Name of the benchmark instance"
+  value       = length(google_compute_instance.llmbench) > 0 ? google_compute_instance.llmbench[0].name : null
+  description = "Name of first instance (backward compatibility)"
 }
 
 output "instance_zone" {
-  value       = google_compute_instance.llmbench.zone
-  description = "Zone of the benchmark instance"
+  value       = length(google_compute_instance.llmbench) > 0 ? google_compute_instance.llmbench[0].zone : null
+  description = "Zone of first instance (backward compatibility)"
 }

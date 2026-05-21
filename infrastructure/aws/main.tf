@@ -66,9 +66,14 @@ resource "aws_key_pair" "llmbench" {
   }
 }
 
+locals {
+  actual_instance_type = var.machine_type != "" ? var.machine_type : var.instance_type
+}
+
 resource "aws_instance" "llmbench" {
+  count         = var.worker_count
   ami           = data.aws_ami.ubuntu.id
-  instance_type = var.instance_type
+  instance_type = local.actual_instance_type
   key_name      = aws_key_pair.llmbench.key_name
 
   vpc_security_group_ids = [aws_security_group.llmbench.id]
@@ -80,6 +85,8 @@ resource "aws_instance" "llmbench" {
 
   user_data = templatefile("${path.module}/../scripts/cloud-init.yaml", {
     models_to_pull = jsonencode(var.models_to_pull)
+    controller_url = var.controller_url
+    worker_id      = "worker-${count.index}"
   })
 
   instance_market_options {
@@ -95,7 +102,7 @@ resource "aws_instance" "llmbench" {
   }
 
   tags = {
-    Name       = "llmbench-runner-${var.run_id}"
+    Name       = "llmbench-worker-${var.run_id}-${count.index}"
     Purpose    = "llm-benchmark"
     RunId      = var.run_id
     ManagedBy  = "terraform"
@@ -106,17 +113,27 @@ resource "aws_instance" "llmbench" {
   }
 }
 
+output "worker_ips" {
+  value       = aws_instance.llmbench[*].public_ip
+  description = "Public IP addresses of all worker instances"
+}
+
+output "worker_ids" {
+  value       = aws_instance.llmbench[*].id
+  description = "IDs of all worker instances"
+}
+
 output "instance_ip" {
-  value       = aws_instance.llmbench.public_ip
-  description = "Public IP address of the benchmark instance"
+  value       = length(aws_instance.llmbench) > 0 ? aws_instance.llmbench[0].public_ip : null
+  description = "Public IP address of first instance (backward compatibility)"
 }
 
 output "instance_id" {
-  value       = aws_instance.llmbench.id
-  description = "ID of the benchmark instance"
+  value       = length(aws_instance.llmbench) > 0 ? aws_instance.llmbench[0].id : null
+  description = "ID of first instance (backward compatibility)"
 }
 
 output "instance_dns" {
-  value       = aws_instance.llmbench.public_dns
-  description = "Public DNS of the benchmark instance"
+  value       = length(aws_instance.llmbench) > 0 ? aws_instance.llmbench[0].public_dns : null
+  description = "Public DNS of first instance (backward compatibility)"
 }
