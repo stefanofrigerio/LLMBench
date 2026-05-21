@@ -10,7 +10,7 @@ run_id     = "run-20250521"
 # Settings: Reusable ✓  Ephemeral ✓
 # Alternatively, set via env var to avoid storing in file:
 #   export TF_VAR_tailscale_auth_key="tskey-auth-..."
-tailscale_auth_key = "tskey-auth-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# tailscale_auth_key = "<generate at https://login.tailscale.com/admin/settings/keys>"
 
 # ---- Controller ----
 # Your machine's Tailscale IP (run: tailscale ip -4)
