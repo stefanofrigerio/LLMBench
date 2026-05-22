@@ -73,4 +73,5 @@ class BenchmarkResult:
     cost_estimate: float
     error: Optional[str] = None
     raw_output: Optional[str] = None
+    expected_output: Optional[str] = None  # serialised ground truth for manual review
     metadata: Optional[Dict[str, Any]] = None

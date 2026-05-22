@@ -32,11 +32,17 @@ class SQLiteStorage:
                     cost_estimate REAL NOT NULL,
                     error TEXT,
                     raw_output TEXT,
+                    expected_output TEXT,
                     metadata TEXT,
                     run_id TEXT,
                     worker_id TEXT
                 )
             """)
+            # Add expected_output column to existing databases that predate this field
+            try:
+                conn.execute("ALTER TABLE benchmark_results ADD COLUMN expected_output TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS benchmark_runs (
@@ -92,9 +98,9 @@ class SQLiteStorage:
             conn.execute("""
                 INSERT INTO benchmark_results
                 (timestamp, capability, complexity, model_name,
-                 score, latency_ms, cost_estimate, error, raw_output, metadata,
-                 run_id, worker_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 score, latency_ms, cost_estimate, error, raw_output, expected_output,
+                 metadata, run_id, worker_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now().isoformat(),
                 result.point.capability.value,
@@ -105,6 +111,7 @@ class SQLiteStorage:
                 result.cost_estimate,
                 result.error,
                 result.raw_output,
+                result.expected_output,
                 json.dumps(result.metadata) if result.metadata else None,
                 run_id,
                 worker_id,
@@ -292,6 +299,7 @@ class SQLiteStorage:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(f"""
                 SELECT
+                    id,
                     model_name,
                     capability,
                     complexity,
@@ -299,6 +307,8 @@ class SQLiteStorage:
                     latency_ms,
                     cost_estimate,
                     error,
+                    raw_output,
+                    expected_output,
                     timestamp
                 FROM benchmark_results
                 {where_clause}

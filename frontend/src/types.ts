@@ -18,6 +18,7 @@ export interface QueueStatus {
 }
 
 export interface BenchmarkResult {
+  id: number
   model_name: string
   capability: string
   complexity: number
@@ -25,6 +26,9 @@ export interface BenchmarkResult {
   latency_ms: number
   cost_estimate: number
   error: string | null
+  raw_output: string | null
+  expected_output: string | null
+  timestamp: string
 }
 
 export interface ScoreEntry {

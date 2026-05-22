@@ -2,6 +2,7 @@
 Main benchmark runner
 """
 
+import json
 import time
 from typing import List
 from ..cube import BenchmarkPoint, BenchmarkResult, Capability
@@ -44,6 +45,13 @@ class BenchmarkRunner:
 
             score = capability_test.evaluate(output, test_case.expected_output, test_case)
 
+            # Serialise expected_output to string for storage (may be dict for JSON cases)
+            expected_str = (
+                json.dumps(test_case.expected_output, ensure_ascii=False)
+                if isinstance(test_case.expected_output, (dict, list))
+                else str(test_case.expected_output)
+            )
+
             return BenchmarkResult(
                 point=point,
                 model_name=model.name,
@@ -51,6 +59,7 @@ class BenchmarkRunner:
                 latency_ms=latency_ms,
                 cost_estimate=self._estimate_cost(latency_ms, len(output)),
                 raw_output=output,
+                expected_output=expected_str,
                 metadata=test_case.metadata,
             )
 
