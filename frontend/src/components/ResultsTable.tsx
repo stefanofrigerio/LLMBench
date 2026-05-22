@@ -23,11 +23,11 @@ function tryPrettyJson(text: string | null): string {
   catch { return text }
 }
 
-function OutputPane({ label, text }: { label: string; text: string | null }) {
+function OutputPane({ label, text, missing }: { label: string; text: string | null; missing?: string }) {
   if (!text) return (
     <div style={{ flex: 1 }}>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>{label}</div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>—</div>
+      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.3rem', fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>{missing ?? '—'}</div>
     </div>
   )
   return (
@@ -199,8 +199,8 @@ export default function ResultsTable({ results }: Props) {
                             </div>
                           )}
                           <div style={{ display: 'flex', gap: '1rem' }}>
-                            <OutputPane label="LLM output" text={r.raw_output} />
-                            <OutputPane label="Expected" text={r.expected_output} />
+                            <OutputPane label="LLM output" text={r.raw_output} missing="No output recorded" />
+                            <OutputPane label="Expected" text={r.expected_output} missing="Run scripts/backfill_expected.py to populate" />
                           </div>
                         </td>
                       </tr>
