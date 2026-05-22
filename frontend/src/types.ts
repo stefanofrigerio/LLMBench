@@ -52,6 +52,22 @@ export interface ProvisionState {
   run_id: string | null
 }
 
+export interface LocalRunResult {
+  capability: string
+  complexity: number
+  model_name: string
+  score: number
+  latency_ms: number
+  error: string | null
+}
+
+export interface LocalRunResponse {
+  status: string
+  model: string
+  total_tests: number
+  results: LocalRunResult[]
+}
+
 export interface ProvisionConfig {
   project_id: string
   run_id: string

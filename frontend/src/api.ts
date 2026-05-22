@@ -1,4 +1,4 @@
-import type { BenchmarkResult, ScoreEntry, Recommendation, ProvisionConfig, ProvisionState, Worker, QueueStatus } from './types'
+import type { BenchmarkResult, ScoreEntry, Recommendation, ProvisionConfig, ProvisionState, Worker, QueueStatus, LocalRunResponse } from './types'
 
 const BASE = ''
 
@@ -76,4 +76,13 @@ export async function fetchProvisionStatus(): Promise<ProvisionState> {
 
 export async function destroyWorkers(): Promise<{ status: string; run_id: string }> {
   return apiFetch('/api/provision/destroy', { method: 'POST' })
+}
+
+export async function localRun(req: {
+  model_id: string
+  capabilities: string[]
+  complexity_range: [number, number]
+  ollama_url?: string
+}): Promise<LocalRunResponse> {
+  return apiFetch('/api/local/run', { method: 'POST', body: JSON.stringify(req) })
 }

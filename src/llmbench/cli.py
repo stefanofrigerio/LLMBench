@@ -135,6 +135,48 @@ Examples:
     provision_parser = subparsers.add_parser("provision", help="Provision infrastructure only")
     add_cloud_args(provision_parser)
 
+    # Local command
+    local_parser = subparsers.add_parser(
+        "local",
+        help="Run benchmark locally with Ollama (no cloud required)"
+    )
+    local_parser.add_argument(
+        "--model",
+        required=True,
+        help="Ollama model tag to benchmark (e.g. qwen2.5:latest)"
+    )
+    local_parser.add_argument(
+        "--capabilities",
+        nargs="+",
+        default=["invoice_extractor"],
+        help="Capabilities to test (default: invoice_extractor)"
+    )
+    local_parser.add_argument(
+        "--complexity-min",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Minimum complexity to include (1-5, default: 1)"
+    )
+    local_parser.add_argument(
+        "--complexity-max",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Maximum complexity to include (1-5, default: 5)"
+    )
+    local_parser.add_argument(
+        "--ollama-url",
+        default="http://localhost:11434",
+        help="Ollama base URL (default: http://localhost:11434)"
+    )
+    local_parser.add_argument(
+        "--db",
+        default="results/benchmarks.db",
+        dest="db_path",
+        help="SQLite database path (default: results/benchmarks.db)"
+    )
+
     # Destroy command
     destroy_parser = subparsers.add_parser("destroy", help="Destroy infrastructure")
     destroy_parser.add_argument(
@@ -285,6 +327,86 @@ def cmd_destroy(args):
         print(f"\n❌ Failed to destroy infrastructure: {e}")
         print(f"You may need to manually destroy resources in the cloud console")
         sys.exit(1)
+
+
+async def cmd_local(args):
+    """Run benchmark locally using Ollama on this machine."""
+    from .models.ollama import OllamaModel
+    from .models.base import ModelConfig
+    from .capabilities import get_capability_test, list_capabilities
+    from .runners.benchmark import BenchmarkRunner
+    from .storage.sqlite import SQLiteStorage
+    from .cube import Capability
+
+    print(f"Running local benchmark")
+    print(f"  Model:        {args.model}")
+    print(f"  Capabilities: {args.capabilities}")
+    print(f"  Complexity:   {args.complexity_min}-{args.complexity_max}")
+    print(f"  Ollama:       {args.ollama_url}")
+    print()
+
+    model_name = args.model.replace(":", "-")
+    model = OllamaModel(
+        ModelConfig(
+            name=model_name,
+            provider="ollama",
+            model_id=args.model,
+            temperature=0.2,
+        ),
+        base_url=args.ollama_url,
+    )
+
+    print("Checking Ollama health...")
+    if not await model.health_check():
+        print(f"ERROR: Ollama not reachable at {args.ollama_url} or model '{args.model}' not found.")
+        print(f"Available local models: ollama list")
+        sys.exit(1)
+    print(f"  {args.model} is ready\n")
+
+    capability_tests = {}
+    available = list_capabilities()
+    for cap_name in args.capabilities:
+        if cap_name not in available:
+            print(f"WARNING: Unknown capability '{cap_name}', skipping. Available: {available}")
+            continue
+        cap = Capability(cap_name)
+        capability_tests[cap] = get_capability_test(cap)
+
+    if not capability_tests:
+        print("ERROR: No valid capabilities to run.")
+        sys.exit(1)
+
+    runner = BenchmarkRunner([model], capability_tests)
+    storage = SQLiteStorage(args.db_path)
+
+    total_tests = 0
+    all_results = []
+
+    for cap, cap_test in capability_tests.items():
+        test_cases = [
+            tc for tc in cap_test.get_test_cases()
+            if args.complexity_min <= tc.complexity <= args.complexity_max
+        ]
+        print(f"Running {cap.value}: {len(test_cases)} test case(s)...")
+        for tc in test_cases:
+            result = await runner.run_single_test(model, cap, tc)
+            all_results.append(result)
+            total_tests += 1
+            status = "PASS" if result.score == 1.0 else ("ERROR" if result.error else "FAIL")
+            if result.error:
+                print(f"  [{status}] complexity={tc.complexity} — {result.error}")
+            else:
+                print(f"  [{status}] complexity={tc.complexity} — score={result.score:.2f}  latency={result.latency_ms:.0f}ms")
+
+    print()
+    storage.save_results(all_results)
+    print(f"Results saved to {args.db_path}")
+
+    scores = [r.score for r in all_results if not r.error]
+    if scores:
+        avg = sum(scores) / len(scores)
+        print(f"\nSummary: {total_tests} tests | avg score={avg:.2f} | "
+              f"pass={sum(1 for s in scores if s == 1.0)}/{len(scores)}")
 
 
 async def cmd_controller(args):
@@ -473,7 +595,9 @@ def main():
         sys.exit(1)
 
     try:
-        if args.command == "controller":
+        if args.command == "local":
+            asyncio.run(cmd_local(args))
+        elif args.command == "controller":
             asyncio.run(cmd_controller(args))
         elif args.command == "worker":
             asyncio.run(cmd_worker(args))

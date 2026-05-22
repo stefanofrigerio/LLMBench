@@ -72,6 +72,13 @@ class ProvisionConfig(BaseModel):
     zone: str = "europe-west1-b"
 
 
+class LocalRunRequest(BaseModel):
+    model_id: str           # Ollama model tag, e.g. "qwen2.5:latest"
+    capabilities: List[str]
+    complexity_range: tuple[int, int] = (1, 5)
+    ollama_url: str = "http://localhost:11434"
+
+
 class StatusResponse(BaseModel):
     queue_status: dict
     worker_stats: dict
@@ -284,21 +291,18 @@ def create_app() -> FastAPI:
             for m in req.models
         ]
 
-        # For this MVP, we'll use hardcoded test cases
-        # In production, load from capability tests
-        from ..capabilities.code_generation import CodeGenerationTest
-
-        capability_tests = {Capability.CODE_GENERATION: CodeGenerationTest()}
+        from ..capabilities import get_capability_test
 
         work_items = []
 
         for model_config in models:
             for cap_name in req.capabilities:
-                capability = Capability(cap_name)
-                if capability not in capability_tests:
+                try:
+                    capability = Capability(cap_name)
+                    cap_test = get_capability_test(capability)
+                except ValueError:
                     continue
 
-                cap_test = capability_tests[capability]
                 test_cases = cap_test.get_test_cases()
 
                 # Filter by complexity range
@@ -333,6 +337,81 @@ def create_app() -> FastAPI:
             "run_id": req.run_id,
             "total_tasks": len(work_items),
             "active_workers": len(worker_registry.get_active_workers()),
+        }
+
+    @app.post("/api/local/run")
+    async def local_run(req: LocalRunRequest):
+        """
+        Run a benchmark locally using Ollama on this machine.
+        Executes synchronously (may take minutes) — call from the frontend
+        only when the user explicitly starts a local run.
+        """
+        import time as _time
+        from ..capabilities import get_capability_test
+        from ..models.ollama import OllamaModel
+        from ..models.base import ModelConfig as MC
+        from ..runners.benchmark import BenchmarkRunner
+        from ..cube import Capability as Cap
+
+        model_name = req.model_id.replace(":", "-")
+        model = OllamaModel(
+            MC(
+                name=model_name,
+                provider="ollama",
+                model_id=req.model_id,
+                temperature=0.2,
+            ),
+            base_url=req.ollama_url,
+        )
+
+        if not await model.health_check():
+            raise HTTPException(
+                status_code=503,
+                detail=f"Ollama is not reachable at {req.ollama_url} or model '{req.model_id}' is not available."
+            )
+
+        capability_tests = {}
+        for cap_name in req.capabilities:
+            try:
+                cap = Cap(cap_name)
+                capability_tests[cap] = get_capability_test(cap)
+            except ValueError:
+                pass
+
+        if not capability_tests:
+            raise HTTPException(status_code=400, detail="No valid capabilities specified.")
+
+        runner = BenchmarkRunner([model], capability_tests)
+
+        # Filter test cases by complexity range before running
+        all_results = []
+        for cap, cap_test in capability_tests.items():
+            for tc in cap_test.get_test_cases():
+                if req.complexity_range[0] <= tc.complexity <= req.complexity_range[1]:
+                    result = await runner.run_single_test(model, cap, tc)
+                    all_results.append(result)
+
+        storage.save_results(all_results)
+
+        serialized = [
+            {
+                "capability": r.point.capability.value,
+                "complexity": r.point.complexity,
+                "model_name": r.model_name,
+                "score": r.score,
+                "latency_ms": r.latency_ms,
+                "error": r.error,
+            }
+            for r in all_results
+        ]
+
+        await broadcast_status_update()
+
+        return {
+            "status": "completed",
+            "model": req.model_id,
+            "total_tests": len(all_results),
+            "results": serialized,
         }
 
     # Get current status

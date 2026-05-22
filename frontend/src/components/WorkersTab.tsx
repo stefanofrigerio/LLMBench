@@ -4,7 +4,10 @@ import GCPForm from './GCPForm'
 import BenchmarkConfig from './BenchmarkConfig'
 import WorkerGrid from './WorkerGrid'
 import BenchmarkProgress from './BenchmarkProgress'
+import LocalForm from './LocalForm'
 import { provision, destroyWorkers, dispatch } from '../api'
+
+type Mode = 'local' | 'cloud'
 
 function makeRunId() {
   const now = new Date()
@@ -29,6 +32,8 @@ export default function WorkersTab({
   runId,
   onRunIdChange,
 }: Props) {
+  const [mode, setMode] = useState<Mode>('local')
+
   const [provConfig, setProvConfig] = useState<ProvisionConfig>({
     project_id: '',
     run_id: makeRunId(),
@@ -123,6 +128,33 @@ export default function WorkersTab({
   return (
     <div className="two-col">
       <div className="left-panel">
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+          {(['local', 'cloud'] as Mode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              style={{
+                padding: '0.35rem 1rem',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                background: mode === m ? 'var(--accent)' : 'var(--surface)',
+                color: mode === m ? '#fff' : 'var(--text-muted)',
+                cursor: 'pointer',
+                fontWeight: mode === m ? 600 : 400,
+                fontSize: '0.85rem',
+                textTransform: 'capitalize',
+              }}
+            >
+              {m === 'local' ? 'Local (Ollama)' : 'Cloud (GCP)'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'local' ? (
+          <LocalForm />
+        ) : (
+          <>
         <GCPForm value={provConfig} onChange={setProvConfig} />
         <BenchmarkConfig
           capabilities={capabilities}
@@ -181,11 +213,23 @@ export default function WorkersTab({
             </button>
           </div>
         )}
+          </>
+        )}
       </div>
 
       <div className="right-panel">
-        <WorkerGrid workers={workers} provisionState={provisionState} />
-        <BenchmarkProgress status={queueStatus} />
+        {mode === 'cloud' && (
+          <>
+            <WorkerGrid workers={workers} provisionState={provisionState} />
+            <BenchmarkProgress status={queueStatus} />
+          </>
+        )}
+        {mode === 'local' && (
+          <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            <p>Local mode runs the benchmark directly on this machine using Ollama.</p>
+            <p style={{ marginTop: '0.5rem' }}>Results are saved to <code>results/benchmarks.db</code> and visible in the Results tab once complete.</p>
+          </div>
+        )}
       </div>
     </div>
   )
