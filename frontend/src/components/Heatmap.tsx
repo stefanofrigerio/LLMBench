@@ -1,15 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchResults, fetchScores } from '../api'
 import type { ScoreEntry } from '../types'
+import { useCapabilities } from '../hooks/useCapabilities'
 
-const CAPABILITIES = [
-  'code_generation',
-  'unit_test_writing',
-  'text_summarization',
-  'data_transformation',
-  'reasoning',
-  'structured_output',
-]
 const COMPLEXITIES = [1, 2, 3, 4, 5]
 
 function scoreColor(score: number | null): string {
@@ -29,6 +22,7 @@ function scoreTextColor(score: number | null): string {
 type ScoreMap = Record<string, Record<number, number | null>>
 
 export default function Heatmap() {
+  const capabilities = useCapabilities()
   const [modelNames, setModelNames] = useState<string[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [scoreMap, setScoreMap] = useState<ScoreMap>({})
@@ -51,7 +45,7 @@ export default function Heatmap() {
     const newMap: ScoreMap = {}
 
     await Promise.all(
-      CAPABILITIES.map(async (cap) => {
+      capabilities.map(async (cap) => {
         newMap[cap] = {}
         for (const comp of COMPLEXITIES) {
           newMap[cap][comp] = null
@@ -126,7 +120,7 @@ export default function Heatmap() {
                 </tr>
               </thead>
               <tbody>
-                {CAPABILITIES.map((cap) => (
+                {capabilities.map((cap) => (
                   <tr key={cap}>
                     <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingRight: '1rem' }}>
                       {cap.replace(/_/g, ' ')}

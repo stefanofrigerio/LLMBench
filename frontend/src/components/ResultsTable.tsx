@@ -1,15 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { BenchmarkResult } from '../types'
-
-const CAPABILITIES = [
-  '',
-  'code_generation',
-  'unit_test_writing',
-  'text_summarization',
-  'data_transformation',
-  'reasoning',
-  'structured_output',
-]
+import { useCapabilities } from '../hooks/useCapabilities'
 
 type SortKey = keyof BenchmarkResult
 type SortDir = 'asc' | 'desc'
@@ -27,6 +18,7 @@ function scoreStyle(score: number) {
 }
 
 export default function ResultsTable({ results }: Props) {
+  const capabilities = useCapabilities()
   const [filterCap, setFilterCap] = useState('')
   const [filterModel, setFilterModel] = useState('')
   const [minComplexity, setMinComplexity] = useState(1)
@@ -87,8 +79,9 @@ export default function ResultsTable({ results }: Props) {
         <div className="form-group">
           <label htmlFor="rt-cap">Capability</label>
           <select id="rt-cap" value={filterCap} onChange={(e) => setFilterCap(e.target.value)}>
-            {CAPABILITIES.map((c) => (
-              <option key={c} value={c}>{c || 'All'}</option>
+            <option value="">All</option>
+            {capabilities.map((c) => (
+              <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
             ))}
           </select>
         </div>

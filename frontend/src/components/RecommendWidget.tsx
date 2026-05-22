@@ -1,15 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { recommend } from '../api'
 import type { Recommendation } from '../types'
-
-const CAPABILITIES = [
-  'code_generation',
-  'unit_test_writing',
-  'text_summarization',
-  'data_transformation',
-  'reasoning',
-  'structured_output',
-]
+import { useCapabilities } from '../hooks/useCapabilities'
 
 const SENSITIVITY_LABELS: Record<number, string> = {
   1: '60%',
@@ -20,7 +12,13 @@ const SENSITIVITY_LABELS: Record<number, string> = {
 }
 
 export default function RecommendWidget() {
-  const [capability, setCapability] = useState('code_generation')
+  const capabilities = useCapabilities()
+  const [capability, setCapability] = useState('')
+
+  // Set first capability once list loads
+  useEffect(() => {
+    if (capabilities.length > 0 && !capability) setCapability(capabilities[0])
+  }, [capabilities, capability])
   const [complexity, setComplexity] = useState(3)
   const [sensitivity, setSensitivity] = useState(3)
   const [loading, setLoading] = useState(false)
@@ -63,7 +61,7 @@ export default function RecommendWidget() {
             value={capability}
             onChange={(e) => setCapability(e.target.value)}
           >
-            {CAPABILITIES.map((c) => (
+            {capabilities.map((c) => (
               <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
             ))}
           </select>
