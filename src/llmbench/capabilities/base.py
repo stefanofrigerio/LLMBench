@@ -94,6 +94,8 @@ class GroundTruthCapabilityTest(CapabilityTest):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         test_cases = []
 
+        IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+
         for entry in manifest["test_cases"]:
             input_path = capability_dir / entry["input_file"]
             expected_path = capability_dir / entry["expected_file"]
@@ -106,8 +108,15 @@ class GroundTruthCapabilityTest(CapabilityTest):
             metadata = entry.get("metadata") or {}
             metadata["test_id"] = entry["id"]
 
+            # For image inputs, store the absolute path as a string so capabilities
+            # can load the raw bytes themselves (e.g. for vision API calls).
+            if input_path.suffix.lower() in IMAGE_SUFFIXES:
+                input_data = str(input_path.resolve())
+            else:
+                input_data = input_path.read_text(encoding="utf-8").strip()
+
             test_cases.append(TestCase(
-                input_data=input_path.read_text(encoding="utf-8").strip(),
+                input_data=input_data,
                 expected_output=expected_path.read_text(encoding="utf-8").strip(),
                 complexity=entry["complexity"],
                 metadata=metadata,

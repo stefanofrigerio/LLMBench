@@ -34,7 +34,12 @@ class BenchmarkRunner:
 
         try:
             start_time = time.perf_counter()
-            output = await model.generate(prompt)
+            # Use capability-level run() if defined (e.g. for vision/image inputs),
+            # otherwise fall back to model.generate(prompt).
+            if hasattr(capability_test, "run"):
+                output = await capability_test.run(model, test_case)
+            else:
+                output = await model.generate(prompt)
             latency_ms = (time.perf_counter() - start_time) * 1000
 
             score = capability_test.evaluate(output, test_case.expected_output, test_case)

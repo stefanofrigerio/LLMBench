@@ -2,7 +2,9 @@
 Ollama model implementation
 """
 
+import base64
 import aiohttp
+from pathlib import Path
 from typing import Optional
 from .base import BaseModel, ModelConfig
 
@@ -15,16 +17,14 @@ class OllamaModel(BaseModel):
         self.base_url = base_url
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response using Ollama API"""
+        """Generate response using Ollama API (text only)."""
         url = f"{self.base_url}/api/generate"
-
         payload = {
             "model": self.config.model_id,
             "prompt": prompt,
             "temperature": kwargs.get("temperature", self.config.temperature),
             "stream": False,
         }
-
         if self.config.additional_params:
             payload.update(self.config.additional_params)
 
@@ -32,12 +32,32 @@ class OllamaModel(BaseModel):
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
                     raise RuntimeError(f"Ollama API error: {response.status}")
+                result = await response.json()
+                return result.get("response", "")
 
+    async def generate_with_image(self, prompt: str, image_path: str, **kwargs) -> str:
+        """Generate response using Ollama vision API (image + text)."""
+        url = f"{self.base_url}/api/generate"
+        image_b64 = base64.b64encode(Path(image_path).read_bytes()).decode()
+        payload = {
+            "model": self.config.model_id,
+            "prompt": prompt,
+            "images": [image_b64],
+            "temperature": kwargs.get("temperature", self.config.temperature),
+            "stream": False,
+        }
+        if self.config.additional_params:
+            payload.update(self.config.additional_params)
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Ollama vision API error: {response.status}")
                 result = await response.json()
                 return result.get("response", "")
 
     async def health_check(self) -> bool:
-        """Check if Ollama is running and model is available"""
+        """Check if Ollama is running and model is available."""
         try:
             url = f"{self.base_url}/api/tags"
             async with aiohttp.ClientSession() as session:
