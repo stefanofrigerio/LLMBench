@@ -414,6 +414,12 @@ def create_app() -> FastAPI:
             "results": serialized,
         }
 
+    @app.get("/api/capabilities")
+    async def list_capabilities_endpoint():
+        """Return capabilities that have a registered test implementation."""
+        from ..capabilities import list_capabilities
+        return {"capabilities": list_capabilities()}
+
     # Get current status
     @app.get("/api/status")
     async def get_status():

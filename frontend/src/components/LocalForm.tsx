@@ -1,18 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { LocalRunResult } from '../types'
-import { localRun } from '../api'
-
-const CAPABILITIES = ['invoice_extractor', 'code_generation']
+import { localRun, fetchCapabilities } from '../api'
 
 export default function LocalForm() {
   const [modelId, setModelId] = useState('qwen2.5:latest')
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
-  const [capabilities, setCapabilities] = useState<string[]>(['invoice_extractor'])
+  const [available, setAvailable] = useState<string[]>([])
+  const [capabilities, setCapabilities] = useState<string[]>([])
   const [complexityMin, setComplexityMin] = useState(1)
   const [complexityMax, setComplexityMax] = useState(5)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<LocalRunResult[] | null>(null)
+
+  useEffect(() => {
+    fetchCapabilities()
+      .then(({ capabilities: caps }) => {
+        setAvailable(caps)
+        setCapabilities(caps)
+      })
+      .catch(() => {})
+  }, [])
 
   const toggleCapability = (cap: string) => {
     setCapabilities((prev) =>
@@ -68,8 +76,13 @@ export default function LocalForm() {
 
       <div className="form-group">
         <label className="form-label">Capabilities</label>
+        {available.length === 0 && (
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Loading capabilities…
+          </span>
+        )}
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {CAPABILITIES.map((cap) => (
+          {available.map((cap) => (
             <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"

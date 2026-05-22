@@ -1,11 +1,5 @@
-const ALL_CAPABILITIES = [
-  'code_generation',
-  'unit_test_writing',
-  'text_summarization',
-  'data_transformation',
-  'reasoning',
-  'structured_output',
-]
+import { useEffect, useState } from 'react'
+import { fetchCapabilities } from '../api'
 
 interface Props {
   capabilities: string[]
@@ -22,6 +16,20 @@ export default function BenchmarkConfig({
   onComplexityRangeChange,
   runId,
 }: Props) {
+  const [available, setAvailable] = useState<string[]>([])
+
+  useEffect(() => {
+    fetchCapabilities()
+      .then(({ capabilities: caps }) => {
+        setAvailable(caps)
+        // Pre-select all by default when list first loads
+        onCapabilitiesChange(caps)
+      })
+      .catch(() => {
+        // Controller not running yet — leave empty
+      })
+  }, [])
+
   function toggleCap(cap: string) {
     const next = capabilities.includes(cap)
       ? capabilities.filter((c) => c !== cap)
@@ -35,18 +43,24 @@ export default function BenchmarkConfig({
 
       <div className="form-group">
         <label>Capabilities</label>
-        <div className="checkbox-group">
-          {ALL_CAPABILITIES.map((cap) => (
-            <label key={cap} className="checkbox-item">
-              <input
-                type="checkbox"
-                checked={capabilities.includes(cap)}
-                onChange={() => toggleCap(cap)}
-              />
-              {cap.replace(/_/g, ' ')}
-            </label>
-          ))}
-        </div>
+        {available.length === 0 ? (
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Start the controller to load available capabilities.
+          </span>
+        ) : (
+          <div className="checkbox-group">
+            {available.map((cap) => (
+              <label key={cap} className="checkbox-item">
+                <input
+                  type="checkbox"
+                  checked={capabilities.includes(cap)}
+                  onChange={() => toggleCap(cap)}
+                />
+                {cap.replace(/_/g, ' ')}
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="form-group">

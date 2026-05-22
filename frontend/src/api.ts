@@ -14,6 +14,10 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export async function fetchCapabilities(): Promise<{ capabilities: string[] }> {
+  return apiFetch('/api/capabilities')
+}
+
 export async function fetchWorkers(): Promise<{ workers: Worker[] }> {
   return apiFetch('/api/workers')
 }
