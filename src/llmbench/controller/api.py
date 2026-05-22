@@ -420,6 +420,24 @@ def create_app() -> FastAPI:
         from ..capabilities import list_capabilities
         return {"capabilities": list_capabilities()}
 
+    @app.get("/api/ollama/models")
+    async def list_ollama_models(ollama_url: str = "http://localhost:11434"):
+        """Return models currently available in Ollama on this machine."""
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{ollama_url}/api/tags",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status != 200:
+                        return {"models": [], "error": f"Ollama returned {resp.status}"}
+                    data = await resp.json()
+                    models = [m["name"] for m in data.get("models", [])]
+                    return {"models": models}
+        except Exception as exc:
+            return {"models": [], "error": str(exc)}
+
     # Get current status
     @app.get("/api/status")
     async def get_status():

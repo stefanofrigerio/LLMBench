@@ -1,68 +1,89 @@
 import { useEffect, useState } from 'react'
 import type { LocalRunResult } from '../types'
-import { localRun, fetchCapabilities } from '../api'
+import { localRun, fetchCapabilities, fetchOllamaModels } from '../api'
 
 export default function LocalForm() {
-  const [modelId, setModelId] = useState('qwen2.5:latest')
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
-  const [available, setAvailable] = useState<string[]>([])
+
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [selectedModels, setSelectedModels] = useState<string[]>([])
+
+  const [availableCaps, setAvailableCaps] = useState<string[]>([])
   const [capabilities, setCapabilities] = useState<string[]>([])
+
   const [complexityMin, setComplexityMin] = useState(1)
   const [complexityMax, setComplexityMax] = useState(5)
   const [running, setRunning] = useState(false)
+  const [runningModel, setRunningModel] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<LocalRunResult[] | null>(null)
 
+  // Load capabilities once on mount
   useEffect(() => {
     fetchCapabilities()
       .then(({ capabilities: caps }) => {
-        setAvailable(caps)
+        setAvailableCaps(caps)
         setCapabilities(caps)
       })
       .catch(() => {})
   }, [])
 
-  const toggleCapability = (cap: string) => {
-    setCapabilities((prev) =>
-      prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap]
-    )
-  }
+  // Load Ollama models whenever URL changes (debounced)
+  useEffect(() => {
+    setModelsError(null)
+    const timer = setTimeout(() => {
+      fetchOllamaModels(ollamaUrl)
+        .then(({ models, error: err }) => {
+          if (err) {
+            setModelsError(err)
+            setAvailableModels([])
+          } else {
+            setAvailableModels(models)
+            setSelectedModels(models) // select all by default
+          }
+        })
+        .catch((e) => setModelsError(String(e)))
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [ollamaUrl])
+
+  const toggleModel = (m: string) =>
+    setSelectedModels((prev) => prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m])
+
+  const toggleCap = (cap: string) =>
+    setCapabilities((prev) => prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap])
 
   const handleRun = async () => {
     setError(null)
     setResults(null)
     setRunning(true)
+    const allResults: LocalRunResult[] = []
     try {
-      const res = await localRun({
-        model_id: modelId,
-        capabilities,
-        complexity_range: [complexityMin, complexityMax],
-        ollama_url: ollamaUrl,
-      })
-      setResults(res.results)
+      for (const model of selectedModels) {
+        setRunningModel(model)
+        const res = await localRun({
+          model_id: model,
+          capabilities,
+          complexity_range: [complexityMin, complexityMax],
+          ollama_url: ollamaUrl,
+        })
+        allResults.push(...res.results)
+      }
+      setResults(allResults)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setRunning(false)
+      setRunningModel(null)
     }
   }
 
-  const canRun = modelId.trim().length > 0 && capabilities.length > 0 && !running
+  const canRun = selectedModels.length > 0 && capabilities.length > 0 && !running
 
   return (
     <div className="form-card">
       <div className="form-section-title">Local Benchmark (Ollama)</div>
-
-      <div className="form-group">
-        <label className="form-label">Model</label>
-        <input
-          className="form-input"
-          value={modelId}
-          onChange={(e) => setModelId(e.target.value)}
-          placeholder="qwen2.5:latest"
-        />
-        <span className="field-hint">Run <code>ollama list</code> to see available models</span>
-      </div>
 
       <div className="form-group">
         <label className="form-label">Ollama URL</label>
@@ -75,24 +96,49 @@ export default function LocalForm() {
       </div>
 
       <div className="form-group">
-        <label className="form-label">Capabilities</label>
-        {available.length === 0 && (
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Loading capabilities…
+        <label className="form-label">Models</label>
+        {modelsError && (
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-error)' }}>
+            Ollama not reachable: {modelsError}
           </span>
         )}
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {available.map((cap) => (
-            <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+        {!modelsError && availableModels.length === 0 && (
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Connecting to Ollama…
+          </span>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+          {availableModels.map((m) => (
+            <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"
-                checked={capabilities.includes(cap)}
-                onChange={() => toggleCapability(cap)}
+                checked={selectedModels.includes(m)}
+                onChange={() => toggleModel(m)}
               />
-              {cap}
+              <code style={{ fontSize: '0.82rem' }}>{m}</code>
             </label>
           ))}
         </div>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Capabilities</label>
+        {availableCaps.length === 0 ? (
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Loading…</span>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+            {availableCaps.map((cap) => (
+              <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={capabilities.includes(cap)}
+                  onChange={() => toggleCap(cap)}
+                />
+                {cap.replace(/_/g, ' ')}
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="form-group">
@@ -100,9 +146,7 @@ export default function LocalForm() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <input
             className="form-input"
-            type="number"
-            min={1}
-            max={5}
+            type="number" min={1} max={5}
             value={complexityMin}
             onChange={(e) => setComplexityMin(Number(e.target.value))}
             style={{ width: '60px' }}
@@ -110,9 +154,7 @@ export default function LocalForm() {
           <span style={{ color: 'var(--text-muted)' }}>to</span>
           <input
             className="form-input"
-            type="number"
-            min={1}
-            max={5}
+            type="number" min={1} max={5}
             value={complexityMax}
             onChange={(e) => setComplexityMax(Number(e.target.value))}
             style={{ width: '60px' }}
@@ -128,15 +170,16 @@ export default function LocalForm() {
 
       <button className="btn-primary" disabled={!canRun} onClick={handleRun}>
         {running && <span className="spinner" />}
-        {running ? 'Running…' : 'Run Benchmark'}
+        {running ? `Running ${runningModel}…` : 'Run Benchmark'}
       </button>
 
-      {results && (
+      {results && results.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
           <div className="form-section-title">Results</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={{ textAlign: 'left', padding: '0.3rem 0.5rem', color: 'var(--text-muted)' }}>Model</th>
                 <th style={{ textAlign: 'left', padding: '0.3rem 0.5rem', color: 'var(--text-muted)' }}>Capability</th>
                 <th style={{ textAlign: 'center', padding: '0.3rem 0.5rem', color: 'var(--text-muted)' }}>Complexity</th>
                 <th style={{ textAlign: 'center', padding: '0.3rem 0.5rem', color: 'var(--text-muted)' }}>Score</th>
@@ -146,6 +189,7 @@ export default function LocalForm() {
             <tbody>
               {results.map((r, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '0.3rem 0.5rem' }}><code style={{ fontSize: '0.8rem' }}>{r.model_name}</code></td>
                   <td style={{ padding: '0.3rem 0.5rem' }}>{r.capability}</td>
                   <td style={{ textAlign: 'center', padding: '0.3rem 0.5rem' }}>{r.complexity}</td>
                   <td style={{ textAlign: 'center', padding: '0.3rem 0.5rem' }}>

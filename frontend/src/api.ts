@@ -18,6 +18,13 @@ export async function fetchCapabilities(): Promise<{ capabilities: string[] }> {
   return apiFetch('/api/capabilities')
 }
 
+export async function fetchOllamaModels(
+  ollamaUrl = 'http://localhost:11434',
+): Promise<{ models: string[]; error?: string }> {
+  const params = new URLSearchParams({ ollama_url: ollamaUrl })
+  return apiFetch(`/api/ollama/models?${params.toString()}`)
+}
+
 export async function fetchWorkers(): Promise<{ workers: Worker[] }> {
   return apiFetch('/api/workers')
 }
