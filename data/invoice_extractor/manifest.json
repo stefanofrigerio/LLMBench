@@ -2,12 +2,12 @@
   "capability": "invoice_extractor",
   "test_cases": [
     {
-      "id": "example",
-      "input_file": "example/test.txt",
-      "expected_file": "example/test_expected.txt",
-      "complexity": 1,
+      "id": "item1",
+      "input_file": "item1/invoice_test.jpg",
+      "expected_file": "item1/invoice_test_expected.json",
+      "complexity": 3,
       "metadata": {
-        "description": "Simple total extraction from invoice text"
+        "description": "Full invoice extraction from JPEG — Slack to MineralTree"
       }
     }
   ]

@@ -1,0 +1,32 @@
+{
+  "invoice_number": "1223113",
+  "date": "2023-12-01",
+  "due_date": "2024-01-15",
+  "payment_terms": "Net 45",
+  "emitter": {
+    "name": "Slack",
+    "address": "500 Howard Street",
+    "city": "San Francisco",
+    "state": "CA",
+    "zip": "94105"
+  },
+  "recipient": {
+    "name": "MineralTree",
+    "address": "101 Arch Street",
+    "city": "Boston",
+    "state": "MA",
+    "zip": "02110"
+  },
+  "items": [
+    {
+      "description": "Business+ Monthly User License - August 2023",
+      "quantity": 115,
+      "unit_price": 15.00,
+      "amount": 1725.00
+    }
+  ],
+  "subtotal": 1725.00,
+  "tax": 0.00,
+  "total": 1725.00,
+  "currency": "USD"
+}

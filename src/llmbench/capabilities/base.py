@@ -115,9 +115,16 @@ class GroundTruthCapabilityTest(CapabilityTest):
             else:
                 input_data = input_path.read_text(encoding="utf-8").strip()
 
+            # JSON expected files are parsed to dict; text files kept as string
+            raw_expected = expected_path.read_text(encoding="utf-8").strip()
+            if expected_path.suffix.lower() == ".json":
+                expected_output = json.loads(raw_expected)
+            else:
+                expected_output = raw_expected
+
             test_cases.append(TestCase(
                 input_data=input_data,
-                expected_output=expected_path.read_text(encoding="utf-8").strip(),
+                expected_output=expected_output,
                 complexity=entry["complexity"],
                 metadata=metadata,
             ))
