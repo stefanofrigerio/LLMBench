@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { LocalRunResult } from '../types'
+import type { LocalRunResult, HardwareInfo } from '../types'
 import { localRun, fetchCapabilities, fetchOllamaModels } from '../api'
 
 export default function LocalForm() {
@@ -18,6 +18,7 @@ export default function LocalForm() {
   const [runningModel, setRunningModel] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<LocalRunResult[] | null>(null)
+  const [hardware, setHardware] = useState<HardwareInfo | null>(null)
 
   // Load capabilities once on mount
   useEffect(() => {
@@ -59,6 +60,7 @@ export default function LocalForm() {
     setResults(null)
     setRunning(true)
     const allResults: LocalRunResult[] = []
+    let lastHardware: HardwareInfo | null = null
     try {
       for (const model of selectedModels) {
         setRunningModel(model)
@@ -69,8 +71,10 @@ export default function LocalForm() {
           ollama_url: ollamaUrl,
         })
         allResults.push(...res.results)
+        if (res.hardware) lastHardware = res.hardware
       }
       setResults(allResults)
+      setHardware(lastHardware)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -209,6 +213,54 @@ export default function LocalForm() {
           </table>
           <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             Results saved to results/benchmarks.db
+          </div>
+        </div>
+      )}
+
+      {hardware && (
+        <div style={{ marginTop: '1.5rem' }}>
+          <div className="form-section-title">Hardware</div>
+          <div style={{
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: '6px',
+            padding: '0.75rem 1rem',
+            fontSize: '0.82rem',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '0.4rem 1.5rem',
+          }}>
+            <div>
+              <span style={{ color: 'var(--text-muted)' }}>Platform </span>
+              <span>{hardware.platform}</span>
+            </div>
+            <div>
+              <span style={{ color: 'var(--text-muted)' }}>RAM </span>
+              <span>{hardware.ram_gb} GB</span>
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <span style={{ color: 'var(--text-muted)' }}>CPU </span>
+              <span>{hardware.cpu.brand}</span>
+              <span style={{ color: 'var(--text-muted)' }}> &nbsp;{hardware.cpu.physical_cores}c/{hardware.cpu.logical_cores}t</span>
+              {hardware.cpu.freq_mhz && (
+                <span style={{ color: 'var(--text-muted)' }}> @ {hardware.cpu.freq_mhz} MHz</span>
+              )}
+            </div>
+            {hardware.gpus.length === 0 ? (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <span style={{ color: 'var(--text-muted)' }}>GPU </span>
+                <span style={{ color: 'var(--text-muted)' }}>none detected</span>
+              </div>
+            ) : hardware.gpus.map((gpu, i) => (
+              <div key={i} style={{ gridColumn: '1 / -1' }}>
+                <span style={{ color: 'var(--text-muted)' }}>GPU{hardware.gpus.length > 1 ? ` ${i}` : ''} </span>
+                <span>{gpu.name}</span>
+                <span style={{ color: 'var(--text-muted)' }}> {(gpu.memory_mb / 1024).toFixed(1)} GB</span>
+                {gpu.utilization_pct != null && (
+                  <span style={{ color: 'var(--text-muted)' }}> {gpu.utilization_pct}% util</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
