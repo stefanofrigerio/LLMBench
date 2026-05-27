@@ -218,17 +218,36 @@ class TestInvoiceExtractorEvaluate:
         assert score < 1.0
         assert score > 0.0
 
+    def test_partial_ground_truth_perfect_output_scores_1(self, image_extractor):
+        # Simulates handwritten invoice: ground truth only has a subset of fields.
+        # A perfect answer on those fields must score exactly 1.0.
+        tc = image_extractor.get_test_cases()[0]
+        partial_expected = {
+            "invoice_number": "008272",
+            "emitter": {"name": "Palmiye cafe", "address": "Sultanahmet", "city": "Instanbul"},
+            "total": 2430.0,
+        }
+        perfect_output = json.dumps(partial_expected)
+        assert image_extractor.evaluate(perfect_output, partial_expected, tc) == pytest.approx(1.0)
+
     def test_markdown_fenced_json_accepted(self, image_extractor):
         tc = image_extractor.get_test_cases()[0]
         output = f"```json\n{json.dumps(EXPECTED_JSON)}\n```"
         assert image_extractor.evaluate(output, tc.expected_output, tc) == 1.0
 
-    def test_total_weight_significant(self, image_extractor):
-        # Only total correct → score equals total weight (0.10)
+    def test_only_total_correct_scores_1_when_only_total_in_expected(self, image_extractor):
+        # With normalised weights: if expected has only "total", a correct answer scores 1.0
         tc = image_extractor.get_test_cases()[0]
-        minimal = {"total": 1725.0}
-        score = image_extractor.evaluate(json.dumps(minimal), tc.expected_output, tc)
-        assert score == pytest.approx(0.10, abs=0.01)
+        partial_expected = {"total": 1725.0}
+        score = image_extractor.evaluate(json.dumps({"total": 1725.0}), partial_expected, tc)
+        assert score == pytest.approx(1.0)
+
+    def test_partial_expected_normalises_to_1(self, image_extractor):
+        # Ground truth with 3 fields — perfect output on those 3 should score 1.0
+        tc = image_extractor.get_test_cases()[0]
+        partial_expected = {"total": 1725.0, "subtotal": 1725.0, "tax": 0.0}
+        output = json.dumps({"total": 1725.0, "subtotal": 1725.0, "tax": 0.0})
+        assert image_extractor.evaluate(output, partial_expected, tc) == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------

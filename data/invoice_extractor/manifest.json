@@ -9,6 +9,15 @@
       "metadata": {
         "description": "Full invoice extraction from JPEG — Slack to MineralTree"
       }
+    },
+    {
+      "id": "item2",
+      "input_file": "item2/handwritten.jpg",
+      "expected_file": "item2/handwritten_expected.json",
+      "complexity": 5,
+      "metadata": {
+        "description": "Full invoice extraction from JPEG — handwritten cafe note"
+      }
     }
   ]
 }

@@ -138,12 +138,15 @@ class InvoiceExtractorTest(GroundTruthCapabilityTest):
         if got is None:
             return 0.0
 
-        score = 0.0
+        weighted_score = 0.0
+        total_weight = 0.0
         for field, weight in _FIELD_WEIGHTS.items():
             exp_val = expected.get(field)
             got_val = got.get(field)
             if exp_val is None:
-                continue
+                continue  # field absent from ground truth — skip entirely
+
+            total_weight += weight
 
             if field in ("subtotal", "tax", "total"):
                 field_score = _score_number(got_val, exp_val)
@@ -154,9 +157,11 @@ class InvoiceExtractorTest(GroundTruthCapabilityTest):
             else:
                 field_score = _score_strings(got_val, exp_val)
 
-            score += weight * field_score
+            weighted_score += weight * field_score
 
-        return round(score, 4)
+        if total_weight == 0.0:
+            return 0.0
+        return round(weighted_score / total_weight, 4)
 
     def build_prompt(self, test_case: TestCase) -> str:
         if Path(test_case.input_data).suffix.lower() in IMAGE_SUFFIXES:
